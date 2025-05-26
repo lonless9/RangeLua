@@ -11,30 +11,30 @@
 
 namespace rangelua::api {
 
-/**
- * @brief Coroutine wrapper
- */
-class Coroutine {
-public:
-    explicit Coroutine(runtime::Value value);
-
     /**
-     * @brief Resume coroutine
+     * @brief Coroutine wrapper
      */
-    Result<std::vector<runtime::Value>> resume(const std::vector<runtime::Value>& args = {});
+    class Coroutine {
+    public:
+        explicit Coroutine(runtime::Value value);
 
-    /**
-     * @brief Check if coroutine is suspended
-     */
-    [[nodiscard]] bool is_suspended() const noexcept;
+        /**
+         * @brief Resume coroutine
+         */
+        Result<std::vector<runtime::Value>> resume(const std::vector<runtime::Value>& args = {});
 
-    /**
-     * @brief Check if coroutine is dead
-     */
-    [[nodiscard]] bool is_dead() const noexcept;
+        /**
+         * @brief Check if coroutine is suspended
+         */
+        [[nodiscard]] bool is_suspended() const noexcept;
 
-private:
-    runtime::Value coroutine_;
-};
+        /**
+         * @brief Check if coroutine is dead
+         */
+        [[nodiscard]] bool is_dead() const noexcept;
 
-} // namespace rangelua::api
+    private:
+        runtime::Value coroutine_;
+    };
+
+}  // namespace rangelua::api

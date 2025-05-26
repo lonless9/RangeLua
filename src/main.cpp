@@ -6,8 +6,9 @@
 
 #include <rangelua/rangelua.hpp>
 #include <rangelua/utils/logger.hpp>
-#include <iostream>
+
 #include <fstream>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -92,12 +93,18 @@ void print_version() {
  * @brief Convert string to log level
  */
 spdlog::level::level_enum string_to_log_level(const std::string& level) {
-    if (level == "trace") return spdlog::level::trace;
-    if (level == "debug") return spdlog::level::debug;
-    if (level == "info") return spdlog::level::info;
-    if (level == "warn") return spdlog::level::warn;
-    if (level == "error") return spdlog::level::err;
-    if (level == "off") return spdlog::level::off;
+    if (level == "trace")
+        return spdlog::level::trace;
+    if (level == "debug")
+        return spdlog::level::debug;
+    if (level == "info")
+        return spdlog::level::info;
+    if (level == "warn")
+        return spdlog::level::warn;
+    if (level == "error")
+        return spdlog::level::err;
+    if (level == "off")
+        return spdlog::level::off;
     return spdlog::level::info;
 }
 
@@ -130,7 +137,8 @@ void run_interactive() {
             // Print results
             const auto& values = std::get<std::vector<runtime::Value>>(result);
             for (size_t i = 0; i < values.size(); ++i) {
-                if (i > 0) std::cout << "\t";
+                if (i > 0)
+                    std::cout << "\t";
                 std::cout << values[i].debug_string();
             }
             if (!values.empty()) {
@@ -152,8 +160,8 @@ int execute_file(const std::string& filename) {
     if (std::holds_alternative<std::vector<runtime::Value>>(result)) {
         return 0;
     } else {
-        std::cerr << "Error executing file '" << filename << "': "
-                  << static_cast<int>(std::get<ErrorCode>(result)) << "\n";
+        std::cerr << "Error executing file '" << filename
+                  << "': " << static_cast<int>(std::get<ErrorCode>(result)) << "\n";
         return 1;
     }
 }

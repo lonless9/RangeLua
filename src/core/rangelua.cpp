@@ -9,46 +9,46 @@
 
 namespace rangelua {
 
-namespace {
-    bool g_initialized = false;
-}
+    namespace {
+        bool g_initialized = false;
+    }
 
-bool initialize() noexcept {
-    if (g_initialized) {
-        return true;
-    }
-    
-    try {
-        // Initialize logging system
-        utils::Logger::initialize();
-        
-        // TODO: Initialize other subsystems
-        // - Memory manager
-        // - Garbage collector
-        // - Global state
-        
-        g_initialized = true;
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
+    bool initialize() noexcept {
+        if (g_initialized) {
+            return true;
+        }
 
-void cleanup() noexcept {
-    if (!g_initialized) {
-        return;
-    }
-    
-    try {
-        // TODO: Cleanup subsystems
-        
-        // Shutdown logging
-        utils::Logger::shutdown();
-        
-        g_initialized = false;
-    } catch (...) {
-        // Ignore cleanup errors
-    }
-}
+        try {
+            // Initialize logging system
+            utils::Logger::initialize();
 
-} // namespace rangelua
+            // TODO: Initialize other subsystems
+            // - Memory manager
+            // - Garbage collector
+            // - Global state
+
+            g_initialized = true;
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    void cleanup() noexcept {
+        if (!g_initialized) {
+            return;
+        }
+
+        try {
+            // TODO: Cleanup subsystems
+
+            // Shutdown logging
+            utils::Logger::shutdown();
+
+            g_initialized = false;
+        } catch (...) {
+            // Ignore cleanup errors
+        }
+    }
+
+}  // namespace rangelua

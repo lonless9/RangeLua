@@ -11,30 +11,30 @@
 
 namespace rangelua::api {
 
-/**
- * @brief Table wrapper
- */
-class Table {
-public:
-    explicit Table(runtime::Value value);
-
     /**
-     * @brief Get value by key
+     * @brief Table wrapper
      */
-    [[nodiscard]] runtime::Value get(const runtime::Value& key) const;
+    class Table {
+    public:
+        explicit Table(runtime::Value value);
 
-    /**
-     * @brief Set value by key
-     */
-    void set(const runtime::Value& key, const runtime::Value& value);
+        /**
+         * @brief Get value by key
+         */
+        [[nodiscard]] runtime::Value get(const runtime::Value& key) const;
 
-    /**
-     * @brief Get table size
-     */
-    [[nodiscard]] Size size() const noexcept;
+        /**
+         * @brief Set value by key
+         */
+        void set(const runtime::Value& key, const runtime::Value& value);
 
-private:
-    runtime::Value table_;
-};
+        /**
+         * @brief Get table size
+         */
+        [[nodiscard]] Size size() const noexcept;
 
-} // namespace rangelua::api
+    private:
+        runtime::Value table_;
+    };
+
+}  // namespace rangelua::api

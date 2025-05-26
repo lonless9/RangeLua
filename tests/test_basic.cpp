@@ -4,8 +4,9 @@
  * @version 0.1.0
  */
 
-#include <catch2/catch_test_macros.hpp>
 #include <rangelua/rangelua.hpp>
+
+#include <catch2/catch_test_macros.hpp>
 
 TEST_CASE("RangeLua initialization", "[core]") {
     REQUIRE(rangelua::initialize());
@@ -59,7 +60,7 @@ TEST_CASE("Value creation and type checking", "[runtime]") {
         REQUIRE(str_val.is_string());
         REQUIRE(empty_str.is_string());
         REQUIRE(str_val.is_truthy());
-        REQUIRE(empty_str.is_truthy()); // Empty strings are truthy in Lua
+        REQUIRE(empty_str.is_truthy());  // Empty strings are truthy in Lua
     }
 }
 
@@ -124,13 +125,13 @@ TEST_CASE("Basic Lua execution", "[integration]") {
         auto result = state.execute("return 2 + 3", "test");
         // Note: This will fail until we implement the full pipeline
         // For now, we just check that it doesn't crash
-        REQUIRE(true); // Placeholder
+        REQUIRE(true);  // Placeholder
     }
 
     SECTION("Variable assignment") {
         auto result = state.execute("local x = 10; return x", "test");
         // Note: This will fail until we implement the full pipeline
-        REQUIRE(true); // Placeholder
+        REQUIRE(true);  // Placeholder
     }
 
     rangelua::cleanup();

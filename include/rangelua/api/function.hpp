@@ -11,25 +11,25 @@
 
 namespace rangelua::api {
 
-/**
- * @brief Function wrapper
- */
-class Function {
-public:
-    explicit Function(runtime::Value value);
-
     /**
-     * @brief Call function with arguments
+     * @brief Function wrapper
      */
-    Result<std::vector<runtime::Value>> call(const std::vector<runtime::Value>& args);
+    class Function {
+    public:
+        explicit Function(runtime::Value value);
 
-    /**
-     * @brief Get function arity
-     */
-    [[nodiscard]] Size arity() const noexcept;
+        /**
+         * @brief Call function with arguments
+         */
+        Result<std::vector<runtime::Value>> call(const std::vector<runtime::Value>& args);
 
-private:
-    runtime::Value function_;
-};
+        /**
+         * @brief Get function arity
+         */
+        [[nodiscard]] Size arity() const noexcept;
 
-} // namespace rangelua::api
+    private:
+        runtime::Value function_;
+    };
+
+}  // namespace rangelua::api
