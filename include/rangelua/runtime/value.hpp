@@ -8,10 +8,11 @@
 
 #include <concepts>
 #include <functional>
-#include <memory>
+#include <utility>
 #include <variant>
 
 #include "../core/types.hpp"
+#include "gc.hpp"  // Include full GC system
 
 namespace rangelua::runtime {
 
@@ -62,10 +63,10 @@ namespace rangelua::runtime {
         using Boolean = bool;
         using Number = double;
         using String = std::string;
-        using TablePtr = std::shared_ptr<Table>;
-        using FunctionPtr = std::shared_ptr<Function>;
-        using UserdataPtr = std::shared_ptr<Userdata>;
-        using ThreadPtr = std::shared_ptr<Coroutine>;
+        using TablePtr = GCPtr<Table>;
+        using FunctionPtr = GCPtr<Function>;
+        using UserdataPtr = GCPtr<Userdata>;
+        using ThreadPtr = GCPtr<Coroutine>;
 
         using ValueVariant = std::
             variant<Nil, Boolean, Number, String, TablePtr, FunctionPtr, UserdataPtr, ThreadPtr>;

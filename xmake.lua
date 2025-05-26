@@ -57,20 +57,20 @@ target("rangelua_core")
     add_headerfiles("include/rangelua/**.hpp")
 
 -- Main interpreter target
-target("rangelua")
-    set_kind("binary")
-    add_packages("spdlog")
-    set_rundir("$(projectdir)")
-    add_deps("rangelua_core")
-    add_files("src/main.cpp")
+-- target("rangelua")
+--     set_kind("binary")
+--     add_packages("spdlog")
+--     set_rundir("$(projectdir)")
+--     add_deps("rangelua_core")
+--     add_files("src/main.cpp")
 
 -- Unit tests target
-target("rangelua_test")
-    set_kind("binary")
-    add_packages("spdlog", "catch2")
-    add_deps("rangelua_core")
-    add_files("tests/**.cpp")
-    add_defines("CATCH_CONFIG_MAIN")
+-- target("rangelua_test")
+--     set_kind("binary")
+--     add_packages("spdlog", "catch2")
+--     add_deps("rangelua_core")
+--     add_files("tests/**.cpp")
+--     add_defines("CATCH_CONFIG_MAIN")
 
 -- Benchmark target
 -- target("rangelua_benchmark")

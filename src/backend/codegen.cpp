@@ -265,8 +265,11 @@ namespace rangelua::backend {
     }
 
     Size CodeGenerator::add_constant(const frontend::LiteralExpression::Value& value) {
-        // TODO: Implement constant addition
-        return constants_.size();
+        // Convert frontend literal value to bytecode constant value
+        ConstantValue constant_value = to_constant_value(value);
+
+        // Use the emitter's add_constant method
+        return emitter_.add_constant(constant_value);
     }
 
 }  // namespace rangelua::backend

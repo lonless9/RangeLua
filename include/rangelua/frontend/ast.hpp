@@ -73,9 +73,6 @@ namespace rangelua::frontend {
 
         virtual void accept(ASTVisitor& visitor) const = 0;
 
-        template <typename T>
-        void accept(ASTVisitorT<T>& visitor);
-
         [[nodiscard]] virtual String to_string() const = 0;
 
     protected:
@@ -123,6 +120,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const Value& value() const noexcept { return value_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -140,6 +143,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const String& name() const noexcept { return name_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -188,6 +197,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const Expression& right() const noexcept { return *right_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -212,6 +227,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const Expression& operand() const noexcept { return *operand_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -235,6 +256,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const ExpressionList& arguments() const noexcept { return arguments_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -253,6 +280,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const StatementList& statements() const noexcept { return statements_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -275,6 +308,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const ExpressionList& values() const noexcept { return values_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -311,6 +350,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const Statement* else_body() const noexcept { return else_body_.get(); }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -331,6 +376,12 @@ namespace rangelua::frontend {
         [[nodiscard]] const StatementList& statements() const noexcept { return statements_; }
 
         void accept(ASTVisitor& visitor) const override;
+
+        template <typename T>
+        T accept(ASTVisitorT<T>& visitor) const {
+            return visitor.visit(*this);
+        }
+
         [[nodiscard]] String to_string() const override;
 
     private:
@@ -379,4 +430,4 @@ namespace rangelua::frontend {
 }  // namespace rangelua::frontend
 
 // Concept verification
-// static_assert(rangelua::concepts::ASTNode<rangelua::frontend::ASTNode>);
+static_assert(rangelua::concepts::ASTNode<rangelua::frontend::ASTNode>);

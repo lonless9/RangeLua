@@ -447,35 +447,4 @@ namespace rangelua::runtime {
         return std::monostate{};
     }
 
-    // Default memory manager implementation
-    class DefaultMemoryManager : public MemoryManager {
-    public:
-        void* allocate(Size size) override {
-            total_allocated_ += size;
-            ++allocation_count_;
-            return std::malloc(size);
-        }
-
-        void deallocate(void* ptr, Size size) override {
-            if (ptr) {
-                total_allocated_ -= size;
-                --allocation_count_;
-                std::free(ptr);
-            }
-        }
-
-        void* reallocate(void* ptr, Size old_size, Size new_size) override {
-            total_allocated_ = total_allocated_ - old_size + new_size;
-            return std::realloc(ptr, new_size);
-        }
-
-        [[nodiscard]] Size total_allocated() const noexcept override { return total_allocated_; }
-
-        [[nodiscard]] Size allocation_count() const noexcept override { return allocation_count_; }
-
-    private:
-        Size total_allocated_ = 0;
-        Size allocation_count_ = 0;
-    };
-
 }  // namespace rangelua::runtime

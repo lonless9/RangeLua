@@ -8,6 +8,7 @@
 
 #include <span>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "../core/concepts.hpp"
@@ -18,6 +19,88 @@
 namespace rangelua::backend {
 
     // OpCode enum is now defined in core/instruction.hpp
+
+    /**
+     * @brief Constant value type for bytecode constants
+     *
+     * Represents all possible Lua constant types that can be stored in bytecode:
+     * - nil (std::monostate)
+     * - boolean (bool)
+     * - number (double)
+     * - integer (Int)
+     * - string (String)
+     */
+    using ConstantValue = Variant<std::monostate, bool, Number, Int, String>;
+
+    /**
+     * @brief Constant value type enumeration
+     */
+    enum class ConstantType : std::uint8_t { Nil = 0, Boolean, Number, Integer, String };
+
+    /**
+     * @brief Get the type of a constant value
+     */
+    constexpr ConstantType get_constant_type(const ConstantValue& value) noexcept {
+        return static_cast<ConstantType>(value.index());
+    }
+
+    /**
+     * @brief Check if constant value is nil
+     */
+    constexpr bool is_nil_constant(const ConstantValue& value) noexcept {
+        return std::holds_alternative<std::monostate>(value);
+    }
+
+    /**
+     * @brief Check if constant value is boolean
+     */
+    constexpr bool is_boolean_constant(const ConstantValue& value) noexcept {
+        return std::holds_alternative<bool>(value);
+    }
+
+    /**
+     * @brief Check if constant value is number
+     */
+    constexpr bool is_number_constant(const ConstantValue& value) noexcept {
+        return std::holds_alternative<Number>(value);
+    }
+
+    /**
+     * @brief Check if constant value is integer
+     */
+    constexpr bool is_integer_constant(const ConstantValue& value) noexcept {
+        return std::holds_alternative<Int>(value);
+    }
+
+    /**
+     * @brief Check if constant value is string
+     */
+    constexpr bool is_string_constant(const ConstantValue& value) noexcept {
+        return std::holds_alternative<String>(value);
+    }
+
+    /**
+     * @brief Convert frontend LiteralExpression::Value to ConstantValue
+     */
+    ConstantValue
+    to_constant_value(const Variant<Number, Int, String, bool, std::monostate>& literal_value);
+
+    /**
+     * @brief Convert ConstantValue to string representation for debugging
+     */
+    String constant_value_to_string(const ConstantValue& value);
+
+    /**
+     * @brief Check if two constant values are equal
+     */
+    bool constant_values_equal(const ConstantValue& a, const ConstantValue& b) noexcept;
+
+    /**
+     * @brief Hash function for ConstantValue (for use in unordered containers)
+     */
+    struct ConstantValueHash {
+        Size operator()(const ConstantValue& value) const noexcept;
+    };
 
     /**
      * @brief Instruction encoder/decoder using LuaInstruction from core/instruction.hpp
@@ -118,7 +201,7 @@ namespace rangelua::backend {
     struct BytecodeFunction {
         String name;
         std::vector<Instruction> instructions;
-        std::vector<String> constants;
+        std::vector<ConstantValue> constants;
         std::vector<String> locals;
         std::vector<String> upvalues;
         Size parameter_count = 0;
@@ -192,6 +275,12 @@ namespace rangelua::backend {
         Size add_constant(const String& value);
 
         /**
+         * @brief Add constant value to constant pool
+         * @return Constant index
+         */
+        Size add_constant(const ConstantValue& value);
+
+        /**
          * @brief Add local variable
          * @return Local index
          */
@@ -245,7 +334,7 @@ namespace rangelua::backend {
 
     private:
         BytecodeFunction function_;
-        std::unordered_map<String, Size> constant_map_;
+        std::unordered_map<String, Size> string_constant_map_;  // For string constants only
         std::unordered_map<String, Size> local_map_;
         std::unordered_map<String, Size> upvalue_map_;
     };
@@ -278,33 +367,115 @@ namespace rangelua::backend {
 
     /**
      * @brief Bytecode validator for correctness checking
+     *
+     * Thread-safe validator that returns validation errors directly without global state.
+     * Uses modern C++20 patterns and RAII principles for clean error handling.
      */
     class BytecodeValidator {
     public:
+        /**
+         * @brief Validation error information
+         */
         struct ValidationError {
-            Size instruction_index;
+            Size instruction_index = 0;
             String message;
-            ErrorCode code;
+            ErrorCode code = ErrorCode::SUCCESS;
+
+            ValidationError() noexcept = default;
+            ValidationError(Size index, String msg, ErrorCode error_code) noexcept
+                : instruction_index(index), message(std::move(msg)), code(error_code) {}
+
+            // Equality comparison for testing
+            bool operator==(const ValidationError& other) const noexcept {
+                return instruction_index == other.instruction_index && message == other.message &&
+                       code == other.code;
+            }
         };
 
         /**
-         * @brief Validate bytecode function
+         * @brief Result type for validation operations
+         *
+         * Returns either an empty vector (success) or a vector of validation errors.
+         * Thread-safe and does not rely on global state.
          */
-        static Result<std::monostate> validate(const BytecodeFunction& function);
+        using ValidationResult = Result<std::vector<ValidationError>>;
+
+        /**
+         * @brief Validate bytecode function
+         *
+         * @param function The bytecode function to validate
+         * @return ValidationResult containing validation errors (empty vector if valid)
+         *
+         * This method is thread-safe and does not modify any global state.
+         * Each call starts with a clean validation context.
+         */
+        static ValidationResult validate(const BytecodeFunction& function) noexcept;
 
         /**
          * @brief Validate single instruction
+         *
+         * @param instr The instruction to validate
+         * @param function The containing function for context
+         * @param index The instruction index within the function
+         * @return Result containing ValidationError if invalid, success otherwise
+         *
+         * This method validates a single instruction in isolation and is thread-safe.
          */
-        static Result<std::monostate>
-        validate_instruction(Instruction instr, const BytecodeFunction& function, Size index);
+        static Result<std::monostate> validate_instruction(Instruction instr,
+                                                           const BytecodeFunction& function,
+                                                           Size index) noexcept;
 
         /**
-         * @brief Get validation errors
+         * @brief Check if validation result indicates success
+         *
+         * @param result The validation result to check
+         * @return true if validation succeeded (no errors), false otherwise
          */
-        static const std::vector<ValidationError>& errors() noexcept;
+        static bool is_valid(const ValidationResult& result) noexcept {
+            return is_success(result) && get_value(result).empty();
+        }
+
+        /**
+         * @brief Get validation errors from result
+         *
+         * @param result The validation result
+         * @return Vector of validation errors (empty if validation succeeded)
+         */
+        static const std::vector<ValidationError>&
+        get_errors(const ValidationResult& result) noexcept {
+            static const std::vector<ValidationError> empty_errors;
+            return is_success(result) ? get_value(result) : empty_errors;
+        }
 
     private:
-        static std::vector<ValidationError> validation_errors_;
+        // No static state - all methods are stateless and thread-safe
+
+        /**
+         * @brief Validate instruction format and operands
+         */
+        static Result<std::monostate> validate_instruction_format(Instruction instr,
+                                                                  Size index) noexcept;
+
+        /**
+         * @brief Validate register references
+         */
+        static Result<std::monostate> validate_register_usage(Instruction instr,
+                                                              const BytecodeFunction& function,
+                                                              Size index) noexcept;
+
+        /**
+         * @brief Validate constant references
+         */
+        static Result<std::monostate> validate_constant_usage(Instruction instr,
+                                                              const BytecodeFunction& function,
+                                                              Size index) noexcept;
+
+        /**
+         * @brief Validate jump targets
+         */
+        static Result<std::monostate> validate_jump_targets(Instruction instr,
+                                                            const BytecodeFunction& function,
+                                                            Size index) noexcept;
     };
 
 }  // namespace rangelua::backend

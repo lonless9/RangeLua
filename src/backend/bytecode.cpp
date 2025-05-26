@@ -11,6 +11,75 @@
 
 namespace rangelua::backend {
 
+    // Utility functions for ConstantValue
+    ConstantValue
+    to_constant_value(const Variant<Number, Int, String, bool, std::monostate>& literal_value) {
+        return std::visit(
+            [](const auto& value) -> ConstantValue {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, std::monostate>) {
+                    return ConstantValue{std::monostate{}};
+                } else if constexpr (std::is_same_v<T, bool>) {
+                    return ConstantValue{value};
+                } else if constexpr (std::is_same_v<T, Number>) {
+                    return ConstantValue{value};
+                } else if constexpr (std::is_same_v<T, Int>) {
+                    return ConstantValue{value};
+                } else if constexpr (std::is_same_v<T, String>) {
+                    return ConstantValue{value};
+                } else {
+                    static_assert(sizeof(T) == 0, "Unsupported literal value type");
+                }
+            },
+            literal_value);
+    }
+
+    String constant_value_to_string(const ConstantValue& value) {
+        return std::visit(
+            [](const auto& v) -> String {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, std::monostate>) {
+                    return "nil";
+                } else if constexpr (std::is_same_v<T, bool>) {
+                    return v ? "true" : "false";
+                } else if constexpr (std::is_same_v<T, Number>) {
+                    return std::to_string(v);
+                } else if constexpr (std::is_same_v<T, Int>) {
+                    return std::to_string(v);
+                } else if constexpr (std::is_same_v<T, String>) {
+                    return "\"" + v + "\"";
+                } else {
+                    static_assert(sizeof(T) == 0, "Unsupported constant value type");
+                }
+            },
+            value);
+    }
+
+    bool constant_values_equal(const ConstantValue& a, const ConstantValue& b) noexcept {
+        return a == b;  // std::variant provides operator==
+    }
+
+    Size ConstantValueHash::operator()(const ConstantValue& value) const noexcept {
+        return std::visit(
+            [](const auto& v) -> Size {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, std::monostate>) {
+                    return 0;
+                } else if constexpr (std::is_same_v<T, bool>) {
+                    return std::hash<bool>{}(v);
+                } else if constexpr (std::is_same_v<T, Number>) {
+                    return std::hash<Number>{}(v);
+                } else if constexpr (std::is_same_v<T, Int>) {
+                    return std::hash<Int>{}(v);
+                } else if constexpr (std::is_same_v<T, String>) {
+                    return std::hash<String>{}(v);
+                } else {
+                    return 0;
+                }
+            },
+            value);
+    }
+
     // InstructionEncoder methods are defined inline in the header
 
     // BytecodeEmitter implementation
@@ -51,14 +120,34 @@ namespace rangelua::backend {
     }
 
     Size BytecodeEmitter::add_constant(const String& value) {
-        auto it = constant_map_.find(value);
-        if (it != constant_map_.end()) {
-            return it->second;
+        return add_constant(ConstantValue{value});
+    }
+
+    Size BytecodeEmitter::add_constant(const ConstantValue& value) {
+        // For string constants, use the string map for deduplication
+        if (is_string_constant(value)) {
+            const String& str = std::get<String>(value);
+            auto it = string_constant_map_.find(str);
+            if (it != string_constant_map_.end()) {
+                return it->second;
+            }
+
+            Size index = function_.constants.size();
+            function_.constants.push_back(value);
+            string_constant_map_[str] = index;
+            return index;
         }
 
+        // For other constant types, check if we already have this exact value
+        for (Size i = 0; i < function_.constants.size(); ++i) {
+            if (constant_values_equal(function_.constants[i], value)) {
+                return i;
+            }
+        }
+
+        // Add new constant
         Size index = function_.constants.size();
         function_.constants.push_back(value);
-        constant_map_[value] = index;
         return index;
     }
 
@@ -116,7 +205,7 @@ namespace rangelua::backend {
 
     void BytecodeEmitter::reset() {
         function_ = BytecodeFunction{};
-        constant_map_.clear();
+        string_constant_map_.clear();
         local_map_.clear();
         upvalue_map_.clear();
     }
@@ -201,7 +290,8 @@ namespace rangelua::backend {
         if (!function.constants.empty()) {
             oss << "Constants:\n";
             for (Size i = 0; i < function.constants.size(); ++i) {
-                oss << "  K" << i << ": \"" << function.constants[i] << "\"\n";
+                oss << "  K" << i << ": " << constant_value_to_string(function.constants[i])
+                    << "\n";
             }
         }
 
@@ -295,27 +385,215 @@ namespace rangelua::backend {
     }
 
     // BytecodeValidator implementation
-    std::vector<BytecodeValidator::ValidationError> BytecodeValidator::validation_errors_;
+    BytecodeValidator::ValidationResult
+    BytecodeValidator::validate(const BytecodeFunction& function) noexcept {
+        std::vector<ValidationError> errors;
 
-    Result<std::monostate> BytecodeValidator::validate(const BytecodeFunction& /* function */) {
-        validation_errors_.clear();
+        try {
+            // Validate basic function properties
+            if (function.instructions.empty()) {
+                errors.emplace_back(0, "Function has no instructions", ErrorCode::RUNTIME_ERROR);
+                return errors;
+            }
 
-        // TODO: Implement bytecode validation
+            // Validate each instruction
+            for (Size i = 0; i < function.instructions.size(); ++i) {
+                auto instr_result = validate_instruction(function.instructions[i], function, i);
+                if (is_error(instr_result)) {
+                    errors.emplace_back(i, "Invalid instruction", get_error(instr_result));
+                }
+            }
 
-        if (validation_errors_.empty()) {
-            return std::monostate{};
+            // Validate stack size requirements
+            if (function.stack_size == 0) {
+                errors.emplace_back(0, "Function has zero stack size", ErrorCode::RUNTIME_ERROR);
+            }
+
+            // Validate parameter count
+            if (function.parameter_count > function.stack_size) {
+                errors.emplace_back(
+                    0, "Parameter count exceeds stack size", ErrorCode::RUNTIME_ERROR);
+            }
+
+            return errors;
+
+        } catch (...) {
+            // Ensure no exceptions escape from noexcept function
+            errors.emplace_back(0, "Internal validation error", ErrorCode::UNKNOWN_ERROR);
+            return errors;
         }
-        return ErrorCode::RUNTIME_ERROR;
     }
 
-    Result<std::monostate> BytecodeValidator::validate_instruction(
-        Instruction /* instr */, const BytecodeFunction& /* function */, Size /* index */) {
-        // TODO: Implement instruction validation
-        return std::monostate{};
+    Result<std::monostate> BytecodeValidator::validate_instruction(Instruction instr,
+                                                                   const BytecodeFunction& function,
+                                                                   Size index) noexcept {
+        try {
+            // Validate instruction format
+            auto format_result = validate_instruction_format(instr, index);
+            if (is_error(format_result)) {
+                return get_error(format_result);
+            }
+
+            // Validate register usage
+            auto register_result = validate_register_usage(instr, function, index);
+            if (is_error(register_result)) {
+                return get_error(register_result);
+            }
+
+            // Validate constant usage
+            auto constant_result = validate_constant_usage(instr, function, index);
+            if (is_error(constant_result)) {
+                return get_error(constant_result);
+            }
+
+            // Validate jump targets
+            auto jump_result = validate_jump_targets(instr, function, index);
+            if (is_error(jump_result)) {
+                return get_error(jump_result);
+            }
+
+            return std::monostate{};
+
+        } catch (...) {
+            // Ensure no exceptions escape from noexcept function
+            return ErrorCode::UNKNOWN_ERROR;
+        }
     }
 
-    const std::vector<BytecodeValidator::ValidationError>& BytecodeValidator::errors() noexcept {
-        return validation_errors_;
+    // Private helper method implementations
+    Result<std::monostate>
+    BytecodeValidator::validate_instruction_format(Instruction instr, Size /* index */) noexcept {
+        try {
+            OpCode opcode = InstructionEncoder::decode_opcode(instr);
+
+            // Validate opcode is within valid range
+            if (static_cast<std::uint8_t>(opcode) >=
+                static_cast<std::uint8_t>(OpCode::OP_EXTRAARG)) {
+                return ErrorCode::RUNTIME_ERROR;
+            }
+
+            // Validate instruction fields based on opcode format
+            Register a = InstructionEncoder::decode_a(instr);
+            if (a > InstructionEncoder::MAX_A) {
+                return ErrorCode::RUNTIME_ERROR;
+            }
+
+            // Additional format validation can be added here based on instruction type
+            return std::monostate{};
+
+        } catch (...) {
+            return ErrorCode::UNKNOWN_ERROR;
+        }
+    }
+
+    Result<std::monostate> BytecodeValidator::validate_register_usage(
+        Instruction instr, const BytecodeFunction& function, Size /* index */) noexcept {
+        try {
+            OpCode opcode = InstructionEncoder::decode_opcode(instr);
+            Register a = InstructionEncoder::decode_a(instr);
+
+            // Validate register A is within stack bounds
+            if (a >= function.stack_size) {
+                return ErrorCode::RUNTIME_ERROR;
+            }
+
+            // For instructions that use B and C registers, validate them too
+            switch (opcode) {
+                case OpCode::OP_MOVE:
+                case OpCode::OP_ADD:
+                case OpCode::OP_SUB:
+                case OpCode::OP_MUL:
+                case OpCode::OP_DIV:
+                case OpCode::OP_MOD:
+                case OpCode::OP_POW:
+                case OpCode::OP_BAND:
+                case OpCode::OP_BOR:
+                case OpCode::OP_BXOR:
+                case OpCode::OP_SHL:
+                case OpCode::OP_SHR: {
+                    Register b = InstructionEncoder::decode_b(instr);
+                    Register c = InstructionEncoder::decode_c(instr);
+
+                    if (b >= function.stack_size || c >= function.stack_size) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+                case OpCode::OP_UNM:
+                case OpCode::OP_NOT:
+                case OpCode::OP_LEN:
+                case OpCode::OP_BNOT: {
+                    Register b = InstructionEncoder::decode_b(instr);
+                    if (b >= function.stack_size) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+                default:
+                    // Other instructions may have different register usage patterns
+                    break;
+            }
+
+            return std::monostate{};
+
+        } catch (...) {
+            return ErrorCode::UNKNOWN_ERROR;
+        }
+    }
+
+    Result<std::monostate> BytecodeValidator::validate_constant_usage(
+        Instruction instr, const BytecodeFunction& function, Size /* index */) noexcept {
+        try {
+            OpCode opcode = InstructionEncoder::decode_opcode(instr);
+
+            // For instructions that reference constants, validate the constant index
+            switch (opcode) {
+                case OpCode::OP_LOADK: {
+                    std::uint32_t bx = InstructionEncoder::decode_bx(instr);
+                    if (bx >= function.constants.size()) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+                default:
+                    // Other instructions may not use constants
+                    break;
+            }
+
+            return std::monostate{};
+
+        } catch (...) {
+            return ErrorCode::UNKNOWN_ERROR;
+        }
+    }
+
+    Result<std::monostate> BytecodeValidator::validate_jump_targets(
+        Instruction instr, const BytecodeFunction& function, Size index) noexcept {
+        try {
+            OpCode opcode = InstructionEncoder::decode_opcode(instr);
+
+            // For jump instructions, validate the target is within bounds
+            switch (opcode) {
+                case OpCode::OP_JMP: {
+                    std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
+                    std::int64_t target = static_cast<std::int64_t>(index) + 1 + sbx;
+
+                    if (target < 0 ||
+                        target >= static_cast<std::int64_t>(function.instructions.size())) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+                default:
+                    // Other instructions may not be jumps
+                    break;
+            }
+
+            return std::monostate{};
+
+        } catch (...) {
+            return ErrorCode::UNKNOWN_ERROR;
+        }
     }
 
 }  // namespace rangelua::backend

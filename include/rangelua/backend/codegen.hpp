@@ -313,8 +313,6 @@ namespace rangelua::backend {
         void emit_conditional_jump(Register condition, Size target);
 
         // Constant management
-        std::vector<frontend::LiteralExpression::Value> constants_;
-        std::unordered_map<String, Size> string_constants_;
         Size add_constant(const frontend::LiteralExpression::Value& value);
     };
 
