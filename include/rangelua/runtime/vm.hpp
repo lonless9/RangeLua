@@ -8,6 +8,8 @@
 
 #include <memory>
 #include <stack>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../backend/bytecode.hpp"
@@ -16,8 +18,13 @@
 #include "../core/types.hpp"
 #include "memory.hpp"
 #include "value.hpp"
+#include "vm/instruction_strategy.hpp"
 
 namespace rangelua::runtime {
+
+    // Forward declarations for strategy pattern
+    class IVMContext;
+    class InstructionStrategyRegistry;
 
     /**
      * @brief Call frame for function calls
@@ -55,7 +62,7 @@ namespace rangelua::runtime {
     /**
      * @brief Virtual machine for executing Lua bytecode
      */
-    class VirtualMachine {
+    class VirtualMachine : public IVMContext {
         friend class ExecutionContext;
         friend class VMDebugger;
 
@@ -143,38 +150,113 @@ namespace rangelua::runtime {
         /**
          * @brief Get stack size
          */
-        Size stack_size() const noexcept { return stack_top_; }
+        Size stack_size() const noexcept override { return stack_top_; }
 
         /**
          * @brief Get call stack depth
          */
-        Size call_depth() const noexcept { return call_stack_.size(); }
+        Size call_depth() const noexcept override { return call_stack_.size(); }
 
         /**
          * @brief Get current instruction pointer
          */
-        Size instruction_pointer() const noexcept;
+        Size instruction_pointer() const noexcept override;
 
         /**
          * @brief Get current function
          */
-        const backend::BytecodeFunction* current_function() const noexcept;
+        const backend::BytecodeFunction* current_function() const noexcept override;
 
+        // IVMContext interface implementation
         /**
          * @brief Push value onto stack
          */
-        void push(Value value);
+        void push(Value value) override;
 
         /**
          * @brief Pop value from stack
          */
-        Value pop();
+        Value pop() override;
 
         /**
          * @brief Peek at top of stack
          */
-        const Value& top() const;
+        const Value& top() const override;
 
+        /**
+         * @brief Get stack value at register
+         */
+        Value& stack_at(Register reg) override;
+        const Value& stack_at(Register reg) const override;
+
+        /**
+         * @brief Set instruction pointer
+         */
+        void set_instruction_pointer(Size ip) noexcept override;
+
+        /**
+         * @brief Adjust instruction pointer by offset
+         */
+        void adjust_instruction_pointer(std::int32_t offset) noexcept override;
+
+        /**
+         * @brief Get global value
+         */
+        Value get_global(const String& name) const override;
+
+        /**
+         * @brief Set global value
+         */
+        void set_global(const String& name, Value value) override;
+
+        /**
+         * @brief Get constant value
+         */
+        Value get_constant(std::uint16_t index) const override;
+
+        /**
+         * @brief Call function with arguments
+         */
+        Status call_function(const Value& function,
+                             const std::vector<Value>& args,
+                             std::vector<Value>& results) override;
+
+        /**
+         * @brief Setup call frame
+         */
+        Status setup_call_frame(const backend::BytecodeFunction& function, Size arg_count) override;
+
+        /**
+         * @brief Return from function
+         */
+        Status return_from_function(Size result_count) override;
+
+        /**
+         * @brief Set error code
+         */
+        void set_error(ErrorCode code) override;
+
+        /**
+         * @brief Set runtime error
+         */
+        void set_runtime_error(const String& message) override;
+
+        /**
+         * @brief Get memory manager
+         */
+        RuntimeMemoryManager& memory_manager() noexcept override { return *memory_manager_; }
+
+        /**
+         * @brief Get upvalue
+         */
+        Value get_upvalue(UpvalueIndex index) const override;
+
+        /**
+         * @brief Set upvalue
+         */
+        void set_upvalue(UpvalueIndex index, const Value& value) override;
+
+        // Additional VM-specific methods
         /**
          * @brief Get stack value at index
          */
@@ -184,21 +266,6 @@ namespace rangelua::runtime {
          * @brief Set stack value at index
          */
         void set_stack(Size index, Value value);
-
-        /**
-         * @brief Get global value
-         */
-        Value get_global(const String& name) const;
-
-        /**
-         * @brief Set global value
-         */
-        void set_global(const String& name, Value value);
-
-        /**
-         * @brief Get memory manager
-         */
-        RuntimeMemoryManager& memory_manager() noexcept { return *memory_manager_; }
 
         /**
          * @brief Get VM configuration
@@ -218,6 +285,9 @@ namespace rangelua::runtime {
         std::unique_ptr<RuntimeMemoryManager> owned_memory_manager_;
         RuntimeMemoryManager* memory_manager_;
 
+        // Strategy pattern for instruction execution
+        std::unique_ptr<InstructionStrategyRegistry> strategy_registry_;
+
         // Execution state
         std::vector<Value> stack_;
         std::vector<CallFrame> call_stack_;
@@ -234,14 +304,10 @@ namespace rangelua::runtime {
         Status execute_instruction(OpCode opcode, Instruction instruction);
 
         // Stack operations
-        Value& stack_at(Register reg);
-        const Value& stack_at(Register reg) const;
         void ensure_stack_size(Size size);
 
-        // Call operations
+        // Legacy call operations (for backward compatibility)
         Status call_function(const Value& function, Size arg_count, Size result_count);
-        Status return_from_function(Size result_count);
-        Status setup_call_frame(const backend::BytecodeFunction& function, Size arg_count);
 
         // Instruction implementations
         Status op_move(Register a, Register b);
@@ -295,13 +361,78 @@ namespace rangelua::runtime {
 
         Status op_closure(Register a, std::uint16_t bx);
 
+        // Additional table operations
+        Status op_geti(Register a, Register b, Register c);
+        Status op_getfield(Register a, Register b, Register c);
+        Status op_settabup(Register a, Register b, Register c);
+        Status op_seti(Register a, Register b, Register c);
+        Status op_setfield(Register a, Register b, Register c);
+        Status op_self(Register a, Register b, Register c);
+
+        // Arithmetic with constants
+        Status op_addi(Register a, Register b, std::int8_t c);
+        Status op_addk(Register a, Register b, Register c);
+        Status op_subk(Register a, Register b, Register c);
+        Status op_mulk(Register a, Register b, Register c);
+        Status op_modk(Register a, Register b, Register c);
+        Status op_powk(Register a, Register b, Register c);
+        Status op_divk(Register a, Register b, Register c);
+        Status op_idivk(Register a, Register b, Register c);
+
+        // Bitwise with constants
+        Status op_bandk(Register a, Register b, Register c);
+        Status op_bork(Register a, Register b, Register c);
+        Status op_bxork(Register a, Register b, Register c);
+        Status op_shri(Register a, Register b, std::int8_t c);
+        Status op_shli(Register a, Register b, std::int8_t c);
+
+        // Additional arithmetic operations
+        Status op_idiv(Register a, Register b, Register c);
+
+        // Metamethod operations
+        Status op_mmbin(Register a, Register b, Register c);
+        Status op_mmbini(Register a, Register b, std::int16_t sbx);
+        Status op_mmbink(Register a, Register b, Register c);
+
+        // String operations
+        Status op_concat(Register a, Register b);
+
+        // Control flow
+        Status op_close(Register a);
+        Status op_tbc(Register a);
+
+        // Additional comparison operations
+        Status op_eqk(Register a, Register b, std::int16_t sbx);
+        Status op_eqi(Register a, Register b, std::int16_t sbx);
+        Status op_lti(Register a, Register b, std::int16_t sbx);
+        Status op_lei(Register a, Register b, std::int16_t sbx);
+        Status op_gti(Register a, Register b, std::int16_t sbx);
+        Status op_gei(Register a, Register b, std::int16_t sbx);
+
+        // Additional function operations
+        Status op_return0();
+        Status op_return1(Register a);
+
+        // Loop operations
+        Status op_forloop(Register a, std::int16_t bx);
+        Status op_forprep(Register a, std::int16_t bx);
+        Status op_tforprep(Register a, std::int16_t bx);
+        Status op_tforcall(Register a, Register c);
+        Status op_tforloop(Register a, std::int16_t bx);
+
+        // List operations
+        Status op_setlist(Register a, Register b, Register c);
+
+        // Vararg operations
+        Status op_vararg(Register a, Register c);
+        Status op_varargprep(Register a, Register b);
+
         // Upvalue management
         class Upvalue* find_upvalue(Value* stack_location);
         void close_upvalues(Value* level);
 
-        // Error handling
-        void set_error(ErrorCode code);
-        void set_runtime_error(const String& message);
+        // Helper methods
+        Value constant_to_value(const backend::ConstantValue& constant);
     };
 
     /**
@@ -324,7 +455,7 @@ namespace rangelua::runtime {
         /**
          * @brief Check if context is valid
          */
-        bool is_valid() const noexcept;
+        [[nodiscard]] bool is_valid() const noexcept;
 
     private:
         VirtualMachine& vm_;

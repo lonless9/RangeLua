@@ -240,17 +240,22 @@ namespace rangelua::runtime {
         RuntimeMemoryManager(RuntimeMemoryManager&&) = delete;
         RuntimeMemoryManager& operator=(RuntimeMemoryManager&&) = delete;
 
-    protected:
-        RuntimeMemoryManager() = default;
+        // Public allocation interface for VM and other runtime components
+        [[nodiscard]] void* allocate(Size size) { return do_allocate(size); }
 
-        // Basic allocation interface
-        virtual void* allocate(Size size) = 0;
-        virtual void deallocate(void* ptr, Size size) = 0;
-        virtual void* reallocate(void* ptr, Size old_size, Size new_size) = 0;
+        void deallocate(void* ptr, Size size) { do_deallocate(ptr, size); }
 
-        // Aligned allocation for GC objects
-        virtual void* allocateAligned(Size size, Size alignment) = 0;
-        virtual void deallocateAligned(void* ptr, Size size, Size alignment) = 0;
+        [[nodiscard]] void* reallocate(void* ptr, Size old_size, Size new_size) {
+            return do_reallocate(ptr, old_size, new_size);
+        }
+
+        [[nodiscard]] void* allocateAligned(Size size, Size alignment) {
+            return do_allocateAligned(size, alignment);
+        }
+
+        void deallocateAligned(void* ptr, Size size, Size alignment) {
+            do_deallocateAligned(ptr, size, alignment);
+        }
 
         // Statistics and monitoring
         [[nodiscard]] virtual const MemoryStats& stats() const noexcept = 0;
@@ -263,6 +268,18 @@ namespace rangelua::runtime {
         // GC integration
         virtual void notifyGCStart() noexcept = 0;
         virtual void notifyGCEnd(Size freedBytes) noexcept = 0;
+
+    protected:
+        RuntimeMemoryManager() = default;
+
+        // Implementation interface for derived classes
+        virtual void* do_allocate(Size size) = 0;
+        virtual void do_deallocate(void* ptr, Size size) = 0;
+        virtual void* do_reallocate(void* ptr, Size old_size, Size new_size) = 0;
+
+        // Aligned allocation for GC objects
+        virtual void* do_allocateAligned(Size size, Size alignment) = 0;
+        virtual void do_deallocateAligned(void* ptr, Size size, Size alignment) = 0;
     };
 
     /**
@@ -329,8 +346,8 @@ namespace rangelua::runtime {
         DefaultRuntimeMemoryManager(DefaultRuntimeMemoryManager&&) = delete;
         DefaultRuntimeMemoryManager& operator=(DefaultRuntimeMemoryManager&&) = delete;
 
-        // RuntimeMemoryManager interface
-        void* allocate(Size size) override {
+        // RuntimeMemoryManager implementation interface
+        void* do_allocate(Size size) override {
             void* ptr = allocator_->allocate(size);
             if (ptr) {
                 updateStats(size, true);
@@ -338,14 +355,14 @@ namespace rangelua::runtime {
             return ptr;
         }
 
-        void deallocate(void* ptr, Size size) override {
+        void do_deallocate(void* ptr, Size size) override {
             if (ptr) {
                 allocator_->deallocate(ptr, size);
                 updateStats(size, false);
             }
         }
 
-        void* reallocate(void* ptr, Size old_size, Size new_size) override {
+        void* do_reallocate(void* ptr, Size old_size, Size new_size) override {
             void* new_ptr = allocator_->reallocate(ptr, old_size, new_size);
             if (new_ptr && new_size != old_size) {
                 updateStats(old_size, false);
@@ -355,7 +372,7 @@ namespace rangelua::runtime {
             return new_ptr;
         }
 
-        void* allocateAligned(Size size, Size alignment) override {
+        void* do_allocateAligned(Size size, Size alignment) override {
             void* ptr = allocator_->allocate(size, alignment);
             if (ptr) {
                 updateStats(size, true);
@@ -363,7 +380,7 @@ namespace rangelua::runtime {
             return ptr;
         }
 
-        void deallocateAligned(void* ptr, Size size, Size /* alignment */) override {
+        void do_deallocateAligned(void* ptr, Size size, Size /* alignment */) override {
             if (ptr) {
                 allocator_->deallocate(ptr, size);
                 updateStats(size, false);

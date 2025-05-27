@@ -7,6 +7,7 @@
 #include <rangelua/core/error.hpp>
 #include <rangelua/runtime/objects.hpp>
 #include <rangelua/runtime/vm.hpp>
+#include <rangelua/runtime/vm/all_strategies.hpp>
 #include <rangelua/utils/debug.hpp>
 #include <rangelua/utils/logger.hpp>
 
@@ -26,12 +27,18 @@ namespace rangelua::runtime {
             memory_manager_ = owned_memory_manager_.get();
         }
 
+        // Initialize strategy registry
+        strategy_registry_ = InstructionStrategyFactory::create_registry();
+
         stack_.reserve(config_.stack_size);
         call_stack_.reserve(config_.call_stack_size);
     }
 
     VirtualMachine::VirtualMachine(RuntimeMemoryManager& memory_manager, VMConfig config)
         : config_(config), memory_manager_(&memory_manager) {
+        // Initialize strategy registry
+        strategy_registry_ = InstructionStrategyFactory::create_registry();
+
         stack_.reserve(config_.stack_size);
         call_stack_.reserve(config_.call_stack_size);
     }
@@ -252,106 +259,136 @@ namespace rangelua::runtime {
         globals_[name] = std::move(value);
     }
 
+    // IVMContext interface implementation
+    void VirtualMachine::set_instruction_pointer(Size ip) noexcept {
+        if (!call_stack_.empty()) {
+            call_stack_.back().instruction_pointer = ip;
+        }
+    }
+
+    void VirtualMachine::adjust_instruction_pointer(std::int32_t offset) noexcept {
+        if (!call_stack_.empty()) {
+            call_stack_.back().instruction_pointer += offset;
+        }
+    }
+
+    Value VirtualMachine::get_constant(std::uint16_t index) const {
+        if (!call_stack_.empty() && call_stack_.back().function) {
+            const auto& constants = call_stack_.back().function->constants;
+            if (index < constants.size()) {
+                const auto& constant = constants[index];
+
+                // Convert ConstantValue to Value
+                return std::visit(
+                    [](const auto& val) -> Value {
+                        using T = std::decay_t<decltype(val)>;
+                        if constexpr (std::is_same_v<T, std::monostate>) {
+                            return Value{};
+                        } else if constexpr (std::is_same_v<T, bool>) {
+                            return Value(val);
+                        } else if constexpr (std::is_same_v<T, Number>) {
+                            return Value(val);
+                        } else if constexpr (std::is_same_v<T, Int>) {
+                            return Value(val);
+                        } else if constexpr (std::is_same_v<T, String>) {
+                            return Value(val);
+                        } else {
+                            return Value{};
+                        }
+                    },
+                    constant);
+            }
+        }
+
+        VM_LOG_ERROR("Invalid constant index: {}", index);
+        return Value{};
+    }
+
+    Status VirtualMachine::call_function(const Value& function,
+                                         const std::vector<Value>& args,
+                                         std::vector<Value>& results) {
+        try {
+            if (!function.is_function()) {
+                VM_LOG_ERROR("Attempt to call a {} value", function.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            // Use the Value's call method which handles different function types
+            auto call_result = function.call(args);
+            if (is_error(call_result)) {
+                VM_LOG_ERROR("Function call failed");
+                return get_error(call_result);
+            }
+
+            results = get_value(call_result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            VM_LOG_ERROR("Exception in function call: {}", e.what());
+            return e.code();
+        } catch (...) {
+            VM_LOG_ERROR("Unknown error in function call");
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Value VirtualMachine::get_upvalue(UpvalueIndex index) const {
+        if (!call_stack_.empty() && call_stack_.back().function) {
+            // Get the current function's upvalues
+            // This would need to be implemented when we have proper closure support
+            // For now, just return nil
+            VM_LOG_DEBUG("GETUPVAL: upvalue[{}] (not fully implemented)", index);
+        }
+        return Value{};
+    }
+
+    void VirtualMachine::set_upvalue(UpvalueIndex index, const Value& value) {
+        if (!call_stack_.empty() && call_stack_.back().function) {
+            // Set the current function's upvalue
+            // This would need to be implemented when we have proper closure support
+            [[maybe_unused]] const Value& val = value;
+            VM_LOG_DEBUG("SETUPVAL: upvalue[{}] = value (not fully implemented)", index);
+        } else {
+            VM_LOG_DEBUG("SETUPVAL: No current function, ignoring");
+        }
+    }
+
+    Status VirtualMachine::return_from_function(Size result_count) {
+        if (call_stack_.empty()) {
+            VM_LOG_ERROR("Cannot return from function: call stack is empty");
+            return ErrorCode::RUNTIME_ERROR;
+        }
+
+        CallFrame& frame = call_stack_.back();
+        Size base = frame.stack_base;
+
+        // Move return values to the correct position
+        for (Size i = 0; i < result_count; ++i) {
+            if (base + i < stack_.size() && stack_top_ > i) {
+                stack_[base + i] = stack_[stack_top_ - result_count + i];
+            }
+        }
+
+        // Adjust stack top
+        stack_top_ = base + result_count;
+
+        // Pop the call frame
+        call_stack_.pop_back();
+
+        VM_LOG_DEBUG("Returned from function with {} results", result_count);
+        return std::monostate{};
+    }
+
     // Private helper methods
     Status VirtualMachine::execute_instruction(OpCode opcode, Instruction instruction) {
-        using namespace backend;
+        VM_LOG_DEBUG("Executing instruction {} using strategy pattern", static_cast<int>(opcode));
 
-        Register a = InstructionEncoder::decode_a(instruction);
-
-        switch (opcode) {
-            case OpCode::OP_MOVE: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                return op_move(a, b);
-            }
-
-            case OpCode::OP_LOADI: {
-                std::int32_t sbx = InstructionEncoder::decode_sbx(instruction);
-                return op_loadi(a, static_cast<std::int16_t>(sbx));
-            }
-
-            case OpCode::OP_LOADF: {
-                std::int32_t sbx = InstructionEncoder::decode_sbx(instruction);
-                return op_loadf(a, static_cast<std::int16_t>(sbx));
-            }
-
-            case OpCode::OP_LOADK: {
-                std::uint32_t bx = InstructionEncoder::decode_bx(instruction);
-                return op_loadk(a, static_cast<std::uint16_t>(bx));
-            }
-
-            case OpCode::OP_LOADNIL: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                return op_loadnil(a, b);
-            }
-
-            case OpCode::OP_LOADTRUE:
-                return op_loadtrue(a);
-
-            case OpCode::OP_LOADFALSE:
-                return op_loadfalse(a);
-
-            case OpCode::OP_ADD: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                Register c = InstructionEncoder::decode_c(instruction);
-                return op_add(a, b, c);
-            }
-
-            case OpCode::OP_JMP: {
-                std::int32_t sbx = InstructionEncoder::decode_sbx(instruction);
-                return op_jmp(static_cast<std::int16_t>(sbx));
-            }
-
-            case OpCode::OP_RETURN: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                return op_return(a, b);
-            }
-
-            case OpCode::OP_NEWTABLE:
-                return op_newtable(a);
-
-            case OpCode::OP_GETTABLE: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                Register c = InstructionEncoder::decode_c(instruction);
-                return op_gettable(a, b, c);
-            }
-
-            case OpCode::OP_SETTABLE: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                Register c = InstructionEncoder::decode_c(instruction);
-                return op_settable(a, b, c);
-            }
-
-            case OpCode::OP_GETTABUP: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                Register c = InstructionEncoder::decode_c(instruction);
-                return op_gettabup(a, b, c);
-            }
-
-            case OpCode::OP_CLOSURE: {
-                std::uint32_t bx = InstructionEncoder::decode_bx(instruction);
-                return op_closure(a, static_cast<std::uint16_t>(bx));
-            }
-
-            case OpCode::OP_GETUPVAL: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                return op_getupval(a, static_cast<UpvalueIndex>(b));
-            }
-
-            case OpCode::OP_SETUPVAL: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                return op_setupval(a, static_cast<UpvalueIndex>(b));
-            }
-
-            case OpCode::OP_CALL: {
-                Register b = InstructionEncoder::decode_b(instruction);
-                Register c = InstructionEncoder::decode_c(instruction);
-                return op_call(a, b, c);
-            }
-
-            default:
-                VM_LOG_ERROR("Unimplemented opcode: {}", static_cast<int>(opcode));
-                return ErrorCode::RUNTIME_ERROR;
+        if (!strategy_registry_) {
+            VM_LOG_ERROR("Strategy registry not initialized");
+            return ErrorCode::RUNTIME_ERROR;
         }
+
+        // Use strategy pattern for instruction execution
+        return strategy_registry_->execute_instruction(*this, opcode, instruction);
     }
 
     Value& VirtualMachine::stack_at(Register reg) {
