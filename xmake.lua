@@ -65,12 +65,12 @@ target("rangelua_core")
 --     add_files("src/main.cpp")
 
 -- Unit tests target
--- target("rangelua_test")
---     set_kind("binary")
---     add_packages("spdlog", "catch2")
---     add_deps("rangelua_core")
---     add_files("tests/**.cpp")
---     add_defines("CATCH_CONFIG_MAIN")
+target("rangelua_test")
+    set_kind("binary")
+    add_packages("spdlog", "catch2")
+    add_deps("rangelua_core")
+    add_files("tests/**.cpp")
+    add_defines("CATCH_CONFIG_MAIN")
 
 -- Test target for core refactor
 target("test_core_refactor")

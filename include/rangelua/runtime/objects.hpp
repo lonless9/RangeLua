@@ -13,7 +13,6 @@
  * - Coroutine: Lua coroutines/threads
  */
 
-#include "rangelua/runtime/value.hpp"
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -35,8 +34,8 @@ namespace rangelua::runtime {
      */
     class Table : public GCObject {
     public:
-        explicit Table() : GCObject(LuaType::TABLE) {}
-        ~Table() override = default;
+        explicit Table();
+        ~Table() override;
 
         // Table operations
         void set(const Value& key, const Value& value);
@@ -88,8 +87,7 @@ namespace rangelua::runtime {
         GCPtr<Table> metatable_;
 
         // Optimization: track if we need to resize
-        mutable bool needsResize_ = false;
-
+        [[maybe_unused]] mutable bool needsResize_ = false;
         void optimizeStorage();
         [[nodiscard]] bool isArrayIndex(const Value& key) const;
     };
@@ -160,7 +158,7 @@ namespace rangelua::runtime {
         // Debug information
         String name_;
         String source_;
-        Size lineNumber_ = 0;
+        [[maybe_unused]] Size lineNumber_ = 0;
     };
 
     /**
@@ -239,8 +237,10 @@ namespace rangelua::runtime {
         [[nodiscard]] bool stackEmpty() const noexcept;
 
         // Execution control
-        std::vector<Value> resume(const std::vector<Value>& args = {});
-        std::vector<Value> yield(const std::vector<Value>& values = {});
+        std::vector<Value> resume();
+        std::vector<Value> resume(const std::vector<Value>& args);
+        std::vector<Value> yield();
+        std::vector<Value> yield(const std::vector<Value>& values);
 
         // Error handling
         void setError(const String& error);
@@ -257,7 +257,7 @@ namespace rangelua::runtime {
         String error_;
 
         // Execution state
-        Size programCounter_ = 0;
+        [[maybe_unused]] Size programCounter_ = 0;
         GCPtr<Function> currentFunction_;
 
         // Yield/resume state

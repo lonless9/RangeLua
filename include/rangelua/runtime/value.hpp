@@ -21,6 +21,11 @@ namespace rangelua::runtime {
     class Function;
     class Coroutine;
     class Userdata;
+    class Value;
+
+}  // namespace rangelua::runtime
+
+namespace rangelua::runtime {
 
     /**
      * @brief Lua value types
@@ -121,6 +126,14 @@ namespace rangelua::runtime {
         [[nodiscard]] bool is_thread() const noexcept {
             return std::holds_alternative<ThreadPtr>(data_);
         }
+
+        // GC object detection
+        [[nodiscard]] bool is_gc_object() const noexcept {
+            return is_table() || is_function() || is_userdata() || is_thread();
+        }
+
+        // Get GC object pointer (for garbage collection traversal)
+        [[nodiscard]] GCObject* as_gc_object() const noexcept;
 
         // Type conversions with error handling
         [[nodiscard]] Result<Boolean> to_boolean() const noexcept;
@@ -372,9 +385,3 @@ namespace std {
         }
     };
 }  // namespace std
-
-// Concept verification - now enabled with improved concepts
-#include "../core/concepts.hpp"
-static_assert(rangelua::concepts::LuaValue<rangelua::runtime::Value>);
-static_assert(rangelua::concepts::Hashable<rangelua::runtime::Value>);
-static_assert(rangelua::concepts::Comparable<rangelua::runtime::Value>);

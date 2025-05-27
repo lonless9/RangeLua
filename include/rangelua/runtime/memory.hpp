@@ -281,6 +281,13 @@ namespace rangelua::runtime {
         GarbageCollector(GarbageCollector&&) = delete;
         GarbageCollector& operator=(GarbageCollector&&) = delete;
 
+    public:
+        // Root management (public for GCRoot RAII class)
+        virtual void add_root(void* ptr) = 0;
+        virtual void remove_root(void* ptr) = 0;
+        virtual void add_root(GCObject* obj) = 0;
+        virtual void remove_root(GCObject* obj) = 0;
+
     protected:
         GarbageCollector() = default;
 
@@ -288,12 +295,6 @@ namespace rangelua::runtime {
         virtual void collect() = 0;
         virtual void mark_phase() = 0;
         virtual void sweep_phase() = 0;
-
-        // Root management
-        virtual void add_root(void* ptr) = 0;
-        virtual void remove_root(void* ptr) = 0;
-        virtual void add_root(GCObject* obj) = 0;
-        virtual void remove_root(GCObject* obj) = 0;
 
         // Advanced features
         virtual void setMemoryManager(RuntimeMemoryManager* manager) noexcept = 0;

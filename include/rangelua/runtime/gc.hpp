@@ -310,7 +310,7 @@ namespace rangelua::runtime {
         GCStats stats_;
         std::unordered_set<void*> roots_;
         std::unordered_set<GCObject*> allObjects_;
-        std::mutex gcMutex_;
+        mutable std::mutex gcMutex_;
 
         // Cycle detection implementation
         void performCycleDetection();
@@ -324,6 +324,11 @@ namespace rangelua::runtime {
      */
     template <typename T, typename... Args>
     [[nodiscard]] GCPtr<T> makeGCObject(Args&&... args);
+
+    // Internal helper for GC registration
+    namespace detail {
+        void registerWithGC(GCObject* obj);
+    }
 
     /**
      * @brief RAII GC root manager
@@ -364,5 +369,281 @@ namespace rangelua::runtime {
     public:
         DefaultGarbageCollector();
     };
+
+    // Template implementations
+
+    // GCPtr template method implementations
+    template <typename T>
+    constexpr GCPtr<T>::GCPtr(std::nullptr_t) noexcept : ptr_(nullptr) {}
+
+    template <typename T>
+    GCPtr<T>::GCPtr(T* ptr) noexcept : ptr_(ptr) {
+        if constexpr (std::derived_from<T, GCObject>) {
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->addRef();
+            }
+        }
+    }
+
+    template <typename T>
+    GCPtr<T>::GCPtr(const GCPtr& other) noexcept : ptr_(other.ptr_) {
+        if constexpr (std::derived_from<T, GCObject>) {
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->addRef();
+            }
+        }
+    }
+
+    template <typename T>
+    template <typename U>
+        requires std::convertible_to<U*, T*>
+    GCPtr<T>::GCPtr(const GCPtr<U>& other) noexcept : ptr_(other.ptr_) {
+        if constexpr (std::derived_from<T, GCObject>) {
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->addRef();
+            }
+        }
+    }
+
+    template <typename T>
+    GCPtr<T>::GCPtr(GCPtr&& other) noexcept : ptr_(other.ptr_) {
+        other.ptr_ = nullptr;
+    }
+
+    template <typename T>
+    template <typename U>
+        requires std::convertible_to<U*, T*>
+    GCPtr<T>::GCPtr(GCPtr<U>&& other) noexcept : ptr_(other.ptr_) {
+        other.ptr_ = nullptr;
+    }
+
+    template <typename T>
+    GCPtr<T>& GCPtr<T>::operator=(const GCPtr& other) noexcept {
+        if (this != &other) {
+            if constexpr (std::derived_from<T, GCObject>) {
+                if (ptr_) {
+                    static_cast<GCObject*>(ptr_)->removeRef();
+                }
+            }
+            ptr_ = other.ptr_;
+            if constexpr (std::derived_from<T, GCObject>) {
+                if (ptr_) {
+                    static_cast<GCObject*>(ptr_)->addRef();
+                }
+            }
+        }
+        return *this;
+    }
+
+    template <typename T>
+    GCPtr<T>& GCPtr<T>::operator=(GCPtr&& other) noexcept {
+        if (this != &other) {
+            if constexpr (std::derived_from<T, GCObject>) {
+                if (ptr_) {
+                    static_cast<GCObject*>(ptr_)->removeRef();
+                }
+            }
+            ptr_ = other.ptr_;
+            other.ptr_ = nullptr;
+        }
+        return *this;
+    }
+
+    template <typename T>
+    GCPtr<T>& GCPtr<T>::operator=(std::nullptr_t) noexcept {
+        if constexpr (std::derived_from<T, GCObject>) {
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->removeRef();
+                ptr_ = nullptr;
+            }
+        } else {
+            ptr_ = nullptr;
+        }
+        return *this;
+    }
+
+    template <typename T>
+    GCPtr<T>::~GCPtr() {
+        if constexpr (std::derived_from<T, GCObject>) {
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->removeRef();
+            }
+        }
+    }
+
+    template <typename T>
+    T& GCPtr<T>::operator*() const noexcept {
+        return *ptr_;
+    }
+
+    template <typename T>
+    T* GCPtr<T>::operator->() const noexcept {
+        return ptr_;
+    }
+
+    template <typename T>
+    T* GCPtr<T>::get() const noexcept {
+        return ptr_;
+    }
+
+    template <typename T>
+    GCPtr<T>::operator bool() const noexcept {
+        return ptr_ != nullptr;
+    }
+
+    template <typename T>
+    void GCPtr<T>::reset() noexcept {
+        if constexpr (std::derived_from<T, GCObject>) {
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->removeRef();
+                ptr_ = nullptr;
+            }
+        } else {
+            ptr_ = nullptr;
+        }
+    }
+
+    template <typename T>
+    void GCPtr<T>::reset(T* ptr) noexcept {
+        if constexpr (std::derived_from<T, GCObject>) {
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->removeRef();
+            }
+            ptr_ = ptr;
+            if (ptr_) {
+                static_cast<GCObject*>(ptr_)->addRef();
+            }
+        } else {
+            ptr_ = ptr;
+        }
+    }
+
+    template <typename T>
+    Size GCPtr<T>::use_count() const noexcept {
+        if constexpr (std::derived_from<T, GCObject>) {
+            return ptr_ ? static_cast<GCObject*>(ptr_)->refCount() : 0;
+        } else {
+            return ptr_ ? 1 : 0;  // Non-GC objects always have count 1 if they exist
+        }
+    }
+
+    template <typename T>
+    bool GCPtr<T>::unique() const noexcept {
+        return use_count() == 1;
+    }
+
+    template <typename T>
+    WeakGCPtr<T> GCPtr<T>::weak() const noexcept {
+        return WeakGCPtr<T>(*this);
+    }
+
+    // WeakGCPtr template method implementations
+    template <typename T>
+    WeakGCPtr<T>::WeakGCPtr(const GCPtr<T>& ptr) noexcept : ptr_(ptr.get()) {}
+
+    template <typename T>
+    template <typename U>
+        requires std::convertible_to<U*, T*>
+    WeakGCPtr<T>::WeakGCPtr(const GCPtr<U>& ptr) noexcept : ptr_(ptr.get()) {}
+
+    template <typename T>
+    GCPtr<T> WeakGCPtr<T>::lock() const noexcept {
+        if constexpr (std::derived_from<T, GCObject>) {
+            // TODO For now, we can't safely check if the object is still alive
+            // without a proper weak reference system that tracks object lifetime
+            // Return nullptr to indicate the object is no longer available
+            return GCPtr<T>(nullptr);
+        } else {
+            // For non-GC objects, just return the pointer if it exists
+            if (ptr_) {
+                return GCPtr<T>(ptr_);
+            }
+        }
+        return GCPtr<T>(nullptr);
+    }
+
+    template <typename T>
+    bool WeakGCPtr<T>::expired() const noexcept {
+        if constexpr (std::derived_from<T, GCObject>) {
+            // TODO For now, we'll assume the object is expired if we don't have a pointer
+            // In a real implementation, we'd need a proper weak reference system
+            // that tracks object lifetime
+            return !ptr_;
+        } else {
+            return !ptr_;  // Non-GC objects are never "expired" in the GC sense
+        }
+    }
+
+    template <typename T>
+    void WeakGCPtr<T>::reset() noexcept {
+        ptr_ = nullptr;
+    }
+
+    template <typename T>
+    bool WeakGCPtr<T>::operator==(const WeakGCPtr& other) const noexcept {
+        return ptr_ == other.ptr_;
+    }
+
+    // GCRoot template method implementations
+    template <typename T>
+    GCRoot<T>::GCRoot(GCPtr<T> ptr, GarbageCollector& gc) : ptr_(std::move(ptr)), gc_(gc) {
+        if (ptr_) {
+            gc_.add_root(ptr_.get());
+        }
+    }
+
+    template <typename T>
+    GCRoot<T>::~GCRoot() {
+        if (ptr_) {
+            gc_.remove_root(ptr_.get());
+        }
+    }
+
+    template <typename T>
+    GCRoot<T>::GCRoot(GCRoot&& other) noexcept : ptr_(std::move(other.ptr_)), gc_(other.gc_) {
+        other.ptr_.reset();
+    }
+
+    template <typename T>
+    GCRoot<T>& GCRoot<T>::operator=(GCRoot&& other) noexcept {
+        if (this != &other) {
+            if (ptr_) {
+                gc_.remove_root(ptr_.get());
+            }
+            ptr_ = std::move(other.ptr_);
+            other.ptr_.reset();
+        }
+        return *this;
+    }
+
+    template <typename T>
+    T& GCRoot<T>::operator*() const noexcept {
+        return *ptr_;
+    }
+
+    template <typename T>
+    T* GCRoot<T>::operator->() const noexcept {
+        return ptr_.get();
+    }
+
+    template <typename T>
+    T* GCRoot<T>::get() const noexcept {
+        return ptr_.get();
+    }
+
+    template <typename T>
+    const GCPtr<T>& GCRoot<T>::ptr() const noexcept {
+        return ptr_;
+    }
+
+    // Factory function implementation
+    template <typename T, typename... Args>
+    GCPtr<T> makeGCObject(Args&&... args) {
+        static_assert(std::derived_from<T, GCObject>, "T must derive from GCObject");
+
+        T* obj = new T(std::forward<Args>(args)...);
+        detail::registerWithGC(static_cast<GCObject*>(obj));
+        return GCPtr<T>(obj);
+    }
 
 }  // namespace rangelua::runtime
