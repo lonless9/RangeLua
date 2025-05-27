@@ -108,6 +108,18 @@ target("enhanced_ast_demo")
     -- Link with core library
     add_links("rangelua_core")
 
+-- Test parser demo target
+target("test_parser_demo")
+    set_kind("binary")
+    add_deps("rangelua_core")
+    add_packages("spdlog")
+
+    -- Source files
+    add_files("examples/test_parser_demo.cpp")
+
+    -- Link with core library
+    add_links("rangelua_core")
+
 -- Benchmark target
 -- target("rangelua_benchmark")
 --     set_kind("binary")
