@@ -342,6 +342,12 @@ namespace rangelua::runtime {
                 return op_setupval(a, static_cast<UpvalueIndex>(b));
             }
 
+            case OpCode::OP_CALL: {
+                Register b = InstructionEncoder::decode_b(instruction);
+                Register c = InstructionEncoder::decode_c(instruction);
+                return op_call(a, b, c);
+            }
+
             default:
                 VM_LOG_ERROR("Unimplemented opcode: {}", static_cast<int>(opcode));
                 return ErrorCode::RUNTIME_ERROR;
