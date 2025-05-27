@@ -316,9 +316,9 @@ namespace rangelua::runtime {
         set_error(ErrorCode::RUNTIME_ERROR);
 
         // Additional debug information
-        RANGELUA_DEBUG_PRINT("VM State: " + std::to_string(static_cast<int>(state_)));
-        RANGELUA_DEBUG_PRINT("Stack size: " + std::to_string(stack_.size()));
-        RANGELUA_DEBUG_PRINT("Call stack depth: " + std::to_string(call_stack_.size()));
+        // RANGELUA_DEBUG_PRINT("VM State: " + std::to_string(static_cast<int>(state_)));
+        // RANGELUA_DEBUG_PRINT("Stack size: " + std::to_string(stack_.size()));
+        // RANGELUA_DEBUG_PRINT("Call stack depth: " + std::to_string(call_stack_.size()));
     }
 
     void VirtualMachine::trigger_runtime_error(const String& message) {

@@ -146,6 +146,35 @@ namespace rangelua::frontend {
                 "Parse error at {}:{}: {}", location.filename_, location.line_, message);
         }
 
+        void add_enhanced_error(const String& message,
+                                const SourceLocation& location,
+                                const String& suggestion = "") {
+            String enhanced_message = message;
+            if (!suggestion.empty()) {
+                enhanced_message += ". Suggestion: " + suggestion;
+            }
+            errors_.emplace_back(enhanced_message, location);
+            PARSER_LOG_ERROR(
+                "Parse error at {}:{}: {}", location.filename_, location.line_, enhanced_message);
+        }
+
+        String get_token_suggestion(TokenType expected) {
+            switch (expected) {
+                case TokenType::LeftParen:
+                    return "add '(' before the parameter list";
+                case TokenType::RightParen:
+                    return "add ')' to close the parameter list";
+                case TokenType::Identifier:
+                    return "provide a valid identifier name";
+                case TokenType::Then:
+                    return "add 'then' after the condition";
+                case TokenType::End:
+                    return "add 'end' to close the block";
+                default:
+                    return "";
+            }
+        }
+
         void synchronize() {
             advance();
 
@@ -170,7 +199,8 @@ namespace rangelua::frontend {
                 return true;
             }
 
-            add_error(message, current_location());
+            String suggestion = get_token_suggestion(type);
+            add_enhanced_error(message, current_location(), suggestion);
             return false;
         }
 
@@ -437,7 +467,9 @@ namespace rangelua::frontend {
             advance();  // consume 'function'
 
             if (!check(TokenType::Identifier)) {
-                add_error("Expected function name", current_location());
+                add_enhanced_error("Expected function name",
+                                   current_location(),
+                                   "provide a valid function identifier");
                 return ErrorCode::SYNTAX_ERROR;
             }
 
@@ -464,7 +496,8 @@ namespace rangelua::frontend {
                             parameters.emplace_back(current_token_.value);
                             advance();
                         } else {
-                            add_error("Expected parameter name", current_location());
+                            add_enhanced_error("Expected parameter name", current_location(),
+                                             "provide a valid parameter identifier");
                             return ErrorCode::SYNTAX_ERROR;
                         }
                     }

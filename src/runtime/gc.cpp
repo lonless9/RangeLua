@@ -19,9 +19,9 @@ namespace rangelua::runtime {
 
     // GCObject implementation
     void GCObject::scheduleForDeletion() {
-        RANGELUA_DEBUG_PRINT("GCObject::scheduleForDeletion - object type: " +
-                             std::to_string(static_cast<int>(type())) +
-                             ", ref count: " + std::to_string(refCount()));
+        // RANGELUA_DEBUG_PRINT("GCObject::scheduleForDeletion - object type: " +
+        //                      std::to_string(static_cast<int>(type())) +
+        //                      ", ref count: " + std::to_string(refCount()));
 
         // In a real implementation, this would add the object to a deletion queue
         // For now, we'll delete immediately to prevent memory leaks
@@ -33,7 +33,7 @@ namespace rangelua::runtime {
             if (is_success(gc_result)) {
                 auto* gc = get_value(gc_result);
                 gc->remove_root(this);
-                RANGELUA_DEBUG_PRINT("Successfully removed object from GC roots");
+                // RANGELUA_DEBUG_PRINT("Successfully removed object from GC roots");
             } else {
                 ErrorCode error = get_error(gc_result);
                 log_error(error, "Failed to get garbage collector during object deletion");
@@ -42,7 +42,7 @@ namespace rangelua::runtime {
             log_error(ErrorCode::RUNTIME_ERROR, "Exception during GC cleanup: " + String(e.what()));
         }
 
-        RANGELUA_DEBUG_PRINT("Deleting GCObject immediately");
+        // RANGELUA_DEBUG_PRINT("Deleting GCObject immediately");
         delete this;
     }
 
@@ -67,29 +67,29 @@ namespace rangelua::runtime {
 
         auto start_time = std::chrono::high_resolution_clock::now();
         GC_LOG_DEBUG("Starting garbage collection cycle");
-        RANGELUA_DEBUG_PRINT("GC collection started with strategy: " +
-                             std::to_string(static_cast<int>(strategy_)));
+        // RANGELUA_DEBUG_PRINT("GC collection started with strategy: " +
+        //                      std::to_string(static_cast<int>(strategy_)));
 
         Size objects_before = allObjects_.size();
-        RANGELUA_DEBUG_PRINT("Objects before collection: " + std::to_string(objects_before));
+        // RANGELUA_DEBUG_PRINT("Objects before collection: " + std::to_string(objects_before));
 
         try {
             switch (strategy_) {
                 case GCStrategy::REFERENCE_COUNTING:
                     // Pure reference counting - objects are deleted immediately when refcount
                     // reaches 0 No additional collection needed
-                    RANGELUA_DEBUG_PRINT(
-                        "Using reference counting strategy - no additional work needed");
+                    // RANGELUA_DEBUG_PRINT(
+                    //     "Using reference counting strategy - no additional work needed");
                     break;
 
                 case GCStrategy::HYBRID_RC_TRACING:
                     // Hybrid approach: reference counting + cycle detection
-                    RANGELUA_DEBUG_PRINT("Using hybrid RC+tracing strategy");
+                    // RANGELUA_DEBUG_PRINT("Using hybrid RC+tracing strategy");
                     performCycleDetection();
                     break;
 
                 case GCStrategy::MARK_AND_SWEEP:
-                    RANGELUA_DEBUG_PRINT("Using mark-and-sweep strategy");
+                    // RANGELUA_DEBUG_PRINT("Using mark-and-sweep strategy");
                     mark_phase();
                     sweep_phase();
                     break;
@@ -125,9 +125,9 @@ namespace rangelua::runtime {
                      objects_collected,
                      collection_time.count());
 
-        RANGELUA_DEBUG_PRINT(
-            "GC collection completed - Objects collected: " + std::to_string(objects_collected) +
-            ", Time: " + std::to_string(collection_time.count()) + "ns");
+        // RANGELUA_DEBUG_PRINT(
+        //     "GC collection completed - Objects collected: " + std::to_string(objects_collected) +
+        //     ", Time: " + std::to_string(collection_time.count()) + "ns");
     }
 
     void AdvancedGarbageCollector::mark_phase() {

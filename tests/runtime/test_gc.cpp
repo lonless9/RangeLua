@@ -313,7 +313,7 @@ TEST_CASE("GC error handling and debugging", "[gc][error][debug]") {
         REQUIRE_NOTHROW(gc.requestCollection());
         REQUIRE_NOTHROW(gc.emergencyCollection());
 
-        RANGELUA_DEBUG_PRINT("GC error handling test completed successfully");
+        // RANGELUA_DEBUG_PRINT("GC error handling test completed successfully");
     }
 
     SECTION("Debug timer integration") {
@@ -340,7 +340,7 @@ TEST_CASE("GC error handling and debugging", "[gc][error][debug]") {
     SECTION("Memory pressure handling with debug") {
         AdvancedGarbageCollector gc;
 
-        RANGELUA_DEBUG_PRINT("Testing memory pressure handling");
+        // RANGELUA_DEBUG_PRINT("Testing memory pressure handling");
 
         // Set low threshold for testing
         gc.setMemoryPressureThreshold(1024);
@@ -353,7 +353,7 @@ TEST_CASE("GC error handling and debugging", "[gc][error][debug]") {
             gc.add_root(obj.get());
         }
 
-        RANGELUA_DEBUG_PRINT("Added " + std::to_string(objects.size()) + " objects");
+        // RANGELUA_DEBUG_PRINT("Added " + std::to_string(objects.size()) + " objects");
 
         // Handle memory pressure
         REQUIRE_NOTHROW(gc.handleMemoryPressure());
@@ -363,16 +363,16 @@ TEST_CASE("GC error handling and debugging", "[gc][error][debug]") {
             gc.remove_root(obj.get());
         }
 
-        RANGELUA_DEBUG_PRINT("Memory pressure test completed");
+        // RANGELUA_DEBUG_PRINT("Memory pressure test completed");
     }
 
     SECTION("Statistics monitoring with debug output") {
         AdvancedGarbageCollector gc;
 
         [[maybe_unused]] const auto& initial_stats = gc.stats();
-        RANGELUA_DEBUG_PRINT(
-            "Initial GC stats - Collections: " + std::to_string(initial_stats.collectionsRun) +
-            ", Objects: " + std::to_string(initial_stats.currentObjects));
+        // RANGELUA_DEBUG_PRINT(
+        //     "Initial GC stats - Collections: " + std::to_string(initial_stats.collectionsRun) +
+        //     ", Objects: " + std::to_string(initial_stats.currentObjects));
 
         // Run multiple collections
         for (int i = 0; i < 3; ++i) {
@@ -382,9 +382,9 @@ TEST_CASE("GC error handling and debugging", "[gc][error][debug]") {
         const auto& final_stats = gc.stats();
         REQUIRE(final_stats.collectionsRun == 3);
 
-        RANGELUA_DEBUG_PRINT(
-            "Final GC stats - Collections: " + std::to_string(final_stats.collectionsRun) +
-            ", Total time: " + std::to_string(final_stats.totalCollectionTime.count()) + "ns");
+        // RANGELUA_DEBUG_PRINT(
+        //     "Final GC stats - Collections: " + std::to_string(final_stats.collectionsRun) +
+        //     ", Total time: " + std::to_string(final_stats.totalCollectionTime.count()) + "ns");
     }
 
     SECTION("Error propagation from getGarbageCollector") {
@@ -394,7 +394,7 @@ TEST_CASE("GC error handling and debugging", "[gc][error][debug]") {
         auto* gc = rangelua::get_value(gc_result);
         REQUIRE(gc != nullptr);
 
-        RANGELUA_DEBUG_PRINT("Successfully obtained garbage collector from thread-local storage");
+        // RANGELUA_DEBUG_PRINT("Successfully obtained garbage collector from thread-local storage");
 
         // Test that the GC is accessible - we can add/remove roots
         auto obj = makeGCObject<TestGCObject>(42);
@@ -424,7 +424,7 @@ TEST_CASE("GC thread safety with debugging", "[gc][threading][debug]") {
 
                     auto* gc = rangelua::get_value(gc_result);
 
-                    RANGELUA_DEBUG_PRINT("Thread " + std::to_string(t) + " starting GC operations");
+                    // RANGELUA_DEBUG_PRINT("Thread " + std::to_string(t) + " starting GC operations");
 
                     // Create and manage objects
                     std::vector<GCPtr<TestGCObject>> objects;
@@ -437,8 +437,8 @@ TEST_CASE("GC thread safety with debugging", "[gc][threading][debug]") {
                     // Test GC operations (can't call protected methods directly)
                     // Just verify we can add/remove roots
 
-                    RANGELUA_DEBUG_PRINT("Thread " + std::to_string(t) + " completed " +
-                                         std::to_string(objects.size()) + " object operations");
+                    // RANGELUA_DEBUG_PRINT("Thread " + std::to_string(t) + " completed " +
+                    //                      std::to_string(objects.size()) + " object operations");
 
                     // Clean up
                     for (const auto& obj : objects) {
@@ -448,8 +448,8 @@ TEST_CASE("GC thread safety with debugging", "[gc][threading][debug]") {
                     thread_results[t] = true;
 
                 } catch (const std::exception& e) {
-                    RANGELUA_DEBUG_PRINT("Thread " + std::to_string(t) +
-                                         " caught exception: " + e.what());
+                    // RANGELUA_DEBUG_PRINT("Thread " + std::to_string(t) +
+                    //                      " caught exception: " + e.what());
                 }
             });
         }
@@ -464,8 +464,8 @@ TEST_CASE("GC thread safety with debugging", "[gc][threading][debug]") {
             REQUIRE(thread_results[t]);
         }
 
-        RANGELUA_DEBUG_PRINT("All " + std::to_string(num_threads) +
-                             " threads completed successfully");
+        // RANGELUA_DEBUG_PRINT("All " + std::to_string(num_threads) +
+        //                      " threads completed successfully");
     }
 }
 
@@ -484,7 +484,7 @@ TEST_CASE("GC integration with memory management", "[gc][memory][integration]") 
         REQUIRE(gc != nullptr);
 
         // Test that both systems work together (can't call protected methods)
-        RANGELUA_DEBUG_PRINT("Successfully integrated GC with memory manager");
+        // RANGELUA_DEBUG_PRINT("Successfully integrated GC with memory manager");
 
         // Test that both systems work together
         auto obj = makeGCObject<TestGCObject>(42);
@@ -495,7 +495,7 @@ TEST_CASE("GC integration with memory management", "[gc][memory][integration]") 
 
         gc->remove_root(obj.get());
 
-        RANGELUA_DEBUG_PRINT("GC-memory integration test completed");
+        // RANGELUA_DEBUG_PRINT("GC-memory integration test completed");
     }
 
     SECTION("Memory statistics with GC") {
@@ -505,7 +505,7 @@ TEST_CASE("GC integration with memory management", "[gc][memory][integration]") 
         auto* memory_manager = rangelua::get_value(memory_result);
         REQUIRE(memory_manager != nullptr);
 
-        RANGELUA_DEBUG_PRINT("Testing memory allocation with GC objects");
+        // RANGELUA_DEBUG_PRINT("Testing memory allocation with GC objects");
 
         // Create some GC objects
         std::vector<GCPtr<TestGCObject>> objects;
@@ -513,7 +513,7 @@ TEST_CASE("GC integration with memory management", "[gc][memory][integration]") 
             objects.push_back(makeGCObject<TestGCObject>(i));
         }
 
-        RANGELUA_DEBUG_PRINT("Created " + std::to_string(objects.size()) + " GC objects");
+        // RANGELUA_DEBUG_PRINT("Created " + std::to_string(objects.size()) + " GC objects");
 
         // Verify objects were created
         REQUIRE(objects.size() == 10);
@@ -521,6 +521,6 @@ TEST_CASE("GC integration with memory management", "[gc][memory][integration]") 
         // Clear objects (should trigger cleanup)
         objects.clear();
 
-        RANGELUA_DEBUG_PRINT("Memory statistics test completed");
+        // RANGELUA_DEBUG_PRINT("Memory statistics test completed");
     }
 }
