@@ -342,6 +342,24 @@ namespace rangelua::backend {
         // Current expression result register (for visitor pattern)
         Optional<Register> current_result_register_;
 
+        // Loop context management
+        struct LoopContext {
+            JumpManager::JumpList break_jumps;
+            JumpManager::JumpList continue_jumps;
+            Size loop_start;
+            Size scope_depth;
+        };
+        std::vector<LoopContext> loop_stack_;
+
+        // Label management for goto statements
+        struct LabelInfo {
+            String name;
+            Size position;
+            Size scope_depth;
+        };
+        std::vector<LabelInfo> labels_;
+        std::vector<std::pair<String, Size>> pending_gotos_;  // label name, jump index
+
         // Helper methods
         Register emit_load_constant(const frontend::LiteralExpression::Value& value);
         Register emit_binary_operation(frontend::BinaryOpExpression::Operator op,
@@ -350,6 +368,18 @@ namespace rangelua::backend {
         Register emit_unary_operation(frontend::UnaryOpExpression::Operator op, Register operand);
         void emit_assignment(Register target, Register source);
         void emit_conditional_jump(Register condition, Size target);
+
+        // Loop context helpers
+        void enter_loop(Size loop_start);
+        void exit_loop();
+        bool in_loop() const noexcept;
+        void add_break_jump(Size jump_index);
+        void add_continue_jump(Size jump_index);
+
+        // Label management helpers
+        void define_label(const String& name);
+        void emit_goto(const String& label);
+        void resolve_pending_gotos();
 
         // Constant management
         Size add_constant(const frontend::LiteralExpression::Value& value);

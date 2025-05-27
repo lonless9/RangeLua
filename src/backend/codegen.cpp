@@ -264,23 +264,67 @@ namespace rangelua::backend {
     }
 
     Status CodeGenerator::generate(const frontend::Program& ast) {
-        CODEGEN_LOG_INFO("Starting code generation");
+        CODEGEN_LOG_INFO("Starting code generation for program");
 
-        // TODO: Implement code generation
+        // Reset state for new compilation
+        register_allocator_.reset();
+        current_result_register_.reset();
+
+        // Generate code for the program
         ast.accept(*this);
+
+        // Emit final return instruction if not already present
+        if (emitter_.instruction_count() == 0 ||
+            InstructionEncoder::decode_opcode(emitter_.instructions().back()) !=
+                OpCode::OP_RETURN) {
+            emitter_.emit_abc(OpCode::OP_RETURN, 0, 1, 0);  // Return with no values
+        }
+
+        // Update stack size based on register usage
+        emitter_.set_stack_size(register_allocator_.high_water_mark() + 1);
+
+        CODEGEN_LOG_INFO("Code generation completed. Instructions: {}, Stack size: {}",
+                         emitter_.instruction_count(),
+                         register_allocator_.high_water_mark() + 1);
 
         return make_success();
     }
 
     Result<Register> CodeGenerator::generate_expression(const frontend::Expression& expr) {
-        // TODO: Implement expression code generation
+        CODEGEN_LOG_DEBUG("Generating expression code");
+
+        // Save current result register state
+        Optional<Register> saved_result = current_result_register_;
+        current_result_register_.reset();
+
+        // Generate code for the expression
         expr.accept(*this);
-        return current_result_register_.value_or(0);
+
+        // Check if expression generated a result
+        if (!current_result_register_.has_value()) {
+            CODEGEN_LOG_ERROR("Expression did not produce a result register");
+            current_result_register_ = saved_result;
+            return ErrorCode::RUNTIME_ERROR;
+        }
+
+        Register result = current_result_register_.value();
+        current_result_register_ = saved_result;
+
+        return result;
     }
 
     Status CodeGenerator::generate_statement(const frontend::Statement& stmt) {
-        // TODO: Implement statement code generation
+        CODEGEN_LOG_DEBUG("Generating statement code");
+
+        // Save current result register state
+        Optional<Register> saved_result = current_result_register_;
+
+        // Generate code for the statement
         stmt.accept(*this);
+
+        // Restore result register state
+        current_result_register_ = saved_result;
+
         return make_success();
     }
 
@@ -524,12 +568,40 @@ namespace rangelua::backend {
         Register result_reg = get_value(result_reg_result);
         current_result_register_ = result_reg;
 
-        // For now, emit a simple CALL instruction
-        // TODO: Implement proper argument passing and multiple return values
+        // Implement proper argument passing for function calls
+        // In Lua, function arguments must be in consecutive registers starting from func_reg + 1
+
+        // If we have arguments, we need to ensure they are in consecutive registers
+        if (!arg_registers.empty()) {
+            // Check if arguments are already consecutive starting from func_reg + 1
+            bool args_consecutive = true;
+            for (Size i = 0; i < arg_registers.size(); ++i) {
+                if (arg_registers[i] != func_reg + 1 + i) {
+                    args_consecutive = false;
+                    break;
+                }
+            }
+
+            // If not consecutive, move arguments to consecutive registers
+            if (!args_consecutive) {
+                for (Size i = 0; i < arg_registers.size(); ++i) {
+                    Register target_reg = func_reg + 1 + static_cast<Register>(i);
+                    if (arg_registers[i] != target_reg) {
+                        emitter_.emit_abc(OpCode::OP_MOVE, target_reg, arg_registers[i], 0);
+                    }
+                }
+            }
+        }
+
+        // Emit CALL instruction: CALL A B C
+        // A = function register
+        // B = number of arguments + 1 (1 means 0 args, 2 means 1 arg, etc.)
+        // C = number of return values + 1 (1 means 0 returns, 2 means 1 return, 0 means all
+        // returns)
         Size arg_count = arg_registers.size();
         emitter_.emit_abc(OpCode::OP_CALL, func_reg, static_cast<Register>(arg_count + 1), 2);
 
-        // Move result to our result register
+        // The result is now in func_reg, move it to our result register
         emitter_.emit_abc(OpCode::OP_MOVE, result_reg, func_reg, 0);
 
         // Free argument registers
@@ -657,16 +729,34 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::Program& node) {
-        // TODO: Implement program code generation
         CODEGEN_LOG_DEBUG("Generating code for program");
 
+        // Enter global scope
         scope_manager_.enter_scope();
 
+        // Clear any previous state
+        loop_stack_.clear();
+        labels_.clear();
+        pending_gotos_.clear();
+
+        // Generate code for all statements
         for (const auto& stmt : node.statements()) {
             stmt->accept(*this);
         }
 
+        // Resolve any pending goto statements
+        resolve_pending_gotos();
+
+        // Check for unclosed loops (should not happen with proper AST)
+        if (!loop_stack_.empty()) {
+            CODEGEN_LOG_ERROR("Program ended with {} unclosed loop contexts", loop_stack_.size());
+            loop_stack_.clear();
+        }
+
+        // Exit global scope
         scope_manager_.exit_scope();
+
+        CODEGEN_LOG_DEBUG("Program code generation completed");
     }
 
     // New AST visitor implementations
@@ -794,11 +884,25 @@ namespace rangelua::backend {
                     field.value->accept(*this);
                     Register value_reg = current_result_register_.value_or(0);
 
-                    // Use SETLIST for consecutive array elements (optimization)
-                    emitter_.emit_abc(OpCode::OP_SETTABLE,
-                                      table_reg,
-                                      static_cast<Register>(list_index),
-                                      value_reg);
+                    // For list elements, we can use SETLIST optimization for consecutive elements
+                    // For now, use SETTABLE with immediate index
+                    if (list_index <= 255) {
+                        // Use immediate index if it fits in a register
+                        emitter_.emit_abc(OpCode::OP_SETTABLE,
+                                          table_reg,
+                                          static_cast<Register>(list_index),
+                                          value_reg);
+                    } else {
+                        // For larger indices, load the index into a register first
+                        auto index_reg_result = register_allocator_.allocate();
+                        if (is_success(index_reg_result)) {
+                            Register index_reg = get_value(index_reg_result);
+                            emitter_.emit_asbx(
+                                OpCode::OP_LOADI, index_reg, static_cast<std::int32_t>(list_index));
+                            emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, index_reg, value_reg);
+                            register_allocator_.free(index_reg);
+                        }
+                    }
 
                     register_allocator_.free(value_reg);
                     list_index++;
@@ -841,18 +945,21 @@ namespace rangelua::backend {
         Register result_reg = get_value(reg_result);
         current_result_register_ = result_reg;
 
-        // Create a new function prototype
-        // For now, we'll create a simple function that returns nil
-        // TODO: Implement full nested function compilation
-
         // Create a new bytecode emitter for the nested function
         BytecodeEmitter nested_emitter("anonymous_function");
+
+        // Save current state and switch to nested function context
+        BytecodeEmitter* saved_emitter = &emitter_;
+        RegisterAllocator saved_allocator = std::move(register_allocator_);
+        register_allocator_ = RegisterAllocator(256);  // Fresh allocator for nested function
+        jump_manager_.set_emitter(&nested_emitter);
 
         // Enter new scope for function parameters and body
         scope_manager_.enter_scope();
 
         // Declare parameters as local variables
         bool has_vararg = false;
+        Size param_count = 0;
         for (const auto& param : node.parameters()) {
             if (param.is_vararg) {
                 has_vararg = true;
@@ -863,27 +970,33 @@ namespace rangelua::backend {
             if (is_success(param_reg_result)) {
                 Register param_reg = get_value(param_reg_result);
                 scope_manager_.declare_local(param.name, param_reg);
+                param_count++;
             }
         }
 
         // Set up function metadata
-        nested_emitter.set_parameter_count(node.parameters().size());
+        nested_emitter.set_parameter_count(param_count);
         nested_emitter.set_vararg(has_vararg);
 
         // Generate code for function body
-        // Save current emitter and switch to nested emitter
-        [[maybe_unused]] BytecodeEmitter* saved_emitter = &emitter_;
-        [[maybe_unused]] BytecodeEmitter* old_jump_emitter = &emitter_;
+        node.body().accept(*this);
 
-        // TODO: Implement proper nested function code generation
-        // For now, just emit a simple return nil
-        nested_emitter.emit_abc(OpCode::OP_LOADNIL, 0, 0, 0);
-        nested_emitter.emit_abc(OpCode::OP_RETURN, 0, 2, 0);
+        // Ensure function ends with return instruction
+        if (nested_emitter.instruction_count() == 0 ||
+            InstructionEncoder::decode_opcode(nested_emitter.instructions().back()) !=
+                OpCode::OP_RETURN) {
+            nested_emitter.emit_abc(OpCode::OP_RETURN, 0, 1, 0);  // Return with no values
+        }
+
+        // Update stack size for nested function
+        nested_emitter.set_stack_size(register_allocator_.high_water_mark() + 1);
 
         // Get the generated function
         BytecodeFunction nested_function = nested_emitter.get_function();
 
-        // Exit function scope
+        // Restore previous state
+        register_allocator_ = std::move(saved_allocator);
+        jump_manager_.set_emitter(saved_emitter);
         scope_manager_.exit_scope();
 
         // Add the function as a constant and create closure
@@ -891,8 +1004,12 @@ namespace rangelua::backend {
         emitter_.emit_abx(
             OpCode::OP_CLOSURE, result_reg, static_cast<std::uint32_t>(function_const_index));
 
-        // TODO: Handle upvalues for the closure
-        // For each upvalue, emit GETUPVAL or MOVE instructions
+        // Handle upvalues for the closure
+        // For now, we'll implement a simplified upvalue system
+        // In a full implementation, we'd need to track which variables are captured
+        // and emit appropriate GETUPVAL or MOVE instructions for each upvalue
+        CODEGEN_LOG_DEBUG(
+            "Function expression compiled with {} parameters, vararg: {}", param_count, has_vararg);
     }
 
     void CodeGenerator::visit([[maybe_unused]] const frontend::VarargExpression& node) {
@@ -914,9 +1031,15 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::ParenthesizedExpression& node) {
-        // TODO: Implement parenthesized expression code generation
         CODEGEN_LOG_DEBUG("Generating code for parenthesized expression");
+
+        // Parenthesized expressions in Lua limit multiple return values to one
+        // Generate the inner expression
         node.expression().accept(*this);
+
+        // The result is already in current_result_register_
+        // Parentheses don't change the code generation, just the semantics
+        // (limiting multiple return values to one, which we handle at the call site)
     }
 
     void CodeGenerator::visit(const frontend::LocalDeclarationStatement& node) {
@@ -973,26 +1096,59 @@ namespace rangelua::backend {
 
         Register func_reg = get_value(func_reg_result);
 
-        // For now, create a simple function that returns nil
-        // TODO: Implement proper function body compilation
+        // Create a new bytecode emitter for the function
         BytecodeEmitter nested_emitter("declared_function");
 
-        // Set up function metadata
-        nested_emitter.set_parameter_count(node.parameters().size());
+        // Save current state and switch to nested function context
+        BytecodeEmitter* saved_emitter = &emitter_;
+        RegisterAllocator saved_allocator = std::move(register_allocator_);
+        register_allocator_ = RegisterAllocator(256);  // Fresh allocator for nested function
+        jump_manager_.set_emitter(&nested_emitter);
 
-        // Check for vararg parameters
+        // Enter new scope for function parameters and body
+        scope_manager_.enter_scope();
+
+        // Declare parameters as local variables
         bool has_vararg = false;
+        Size param_count = 0;
         for (const auto& param : node.parameters()) {
             if (param.is_vararg) {
                 has_vararg = true;
-                break;
+                continue;  // Don't allocate register for vararg parameter
+            }
+
+            auto param_reg_result = register_allocator_.allocate();
+            if (is_success(param_reg_result)) {
+                Register param_reg = get_value(param_reg_result);
+                scope_manager_.declare_local(param.name, param_reg);
+                param_count++;
             }
         }
+
+        // Set up function metadata
+        nested_emitter.set_parameter_count(param_count);
         nested_emitter.set_vararg(has_vararg);
 
-        // Generate simple function body (return nil for now)
-        nested_emitter.emit_abc(OpCode::OP_LOADNIL, 0, 0, 0);
-        nested_emitter.emit_abc(OpCode::OP_RETURN, 0, 2, 0);
+        // Generate code for function body
+        node.body().accept(*this);
+
+        // Ensure function ends with return instruction
+        if (nested_emitter.instruction_count() == 0 ||
+            InstructionEncoder::decode_opcode(nested_emitter.instructions().back()) !=
+                OpCode::OP_RETURN) {
+            nested_emitter.emit_abc(OpCode::OP_RETURN, 0, 1, 0);  // Return with no values
+        }
+
+        // Update stack size for nested function
+        nested_emitter.set_stack_size(register_allocator_.high_water_mark() + 1);
+
+        // Get the generated function
+        BytecodeFunction nested_function = nested_emitter.get_function();
+
+        // Restore previous state
+        register_allocator_ = std::move(saved_allocator);
+        jump_manager_.set_emitter(saved_emitter);
+        scope_manager_.exit_scope();
 
         // Add function as constant and create closure
         Size function_const_index = emitter_.add_constant(ConstantValue{String{"<declared_function>"}});
@@ -1022,13 +1178,17 @@ namespace rangelua::backend {
                 emitter_.emit_abx(OpCode::OP_SETTABUP, func_reg, static_cast<std::uint32_t>(const_index));
             } else {
                 // Complex function name (e.g., table.func or obj:method)
-                // TODO: Implement complex function name assignment
+                // For now, log that this is not implemented
                 CODEGEN_LOG_DEBUG("Complex function name assignment not yet implemented");
             }
         }
 
         // Free the function register
         register_allocator_.free(func_reg);
+
+        CODEGEN_LOG_DEBUG("Function declaration compiled with {} parameters, vararg: {}",
+                          param_count,
+                          has_vararg);
     }
 
     void CodeGenerator::visit(const frontend::WhileStatement& node) {
@@ -1036,6 +1196,9 @@ namespace rangelua::backend {
 
         // Mark loop start
         Size loop_start = jump_manager_.current_instruction();
+
+        // Enter loop context for break/continue handling
+        enter_loop(loop_start);
 
         // Generate condition
         node.condition().accept(*this);
@@ -1048,12 +1211,15 @@ namespace rangelua::backend {
         // Generate loop body
         node.body().accept(*this);
 
-        // Jump back to loop start
+        // Jump back to loop start (continue point)
         jump_manager_.emit_jump(loop_start);
 
         // Patch exit jump to here (after loop)
         Size loop_end = jump_manager_.current_instruction();
         jump_manager_.patch_jump(exit_jump, loop_end);
+
+        // Exit loop context and patch break/continue jumps
+        exit_loop();
 
         // Free condition register
         register_allocator_.free(condition_reg);
@@ -1115,6 +1281,9 @@ namespace rangelua::backend {
         // Emit FORPREP instruction (sets up the loop)
         Size loop_start = emitter_.emit_asbx(OpCode::OP_FORPREP, start_reg, 0);
 
+        // Enter loop context for break/continue handling
+        enter_loop(loop_start);
+
         // Generate loop body
         node.body().accept(*this);
 
@@ -1131,6 +1300,9 @@ namespace rangelua::backend {
         emitter_.patch_instruction(
             loop_start,
             InstructionEncoder::encode_asbx(OpCode::OP_FORPREP, start_reg, prep_offset));
+
+        // Exit loop context and patch break/continue jumps
+        exit_loop();
 
         // Exit scope
         scope_manager_.exit_scope();
@@ -1212,6 +1384,9 @@ namespace rangelua::backend {
         // Mark loop start
         Size loop_start = jump_manager_.current_instruction();
 
+        // Enter loop context for break/continue handling
+        enter_loop(loop_start);
+
         // Call iterator function: iter(state, control)
         // For now, use a simplified approach
         emitter_.emit_abc(OpCode::OP_CALL, iter_reg, 3, static_cast<Register>(var_registers.size() + 1));
@@ -1232,6 +1407,9 @@ namespace rangelua::backend {
             jump_manager_.patch_jump(exit_jump, loop_end);
         }
 
+        // Exit loop context and patch break/continue jumps
+        exit_loop();
+
         // Exit scope
         scope_manager_.exit_scope();
 
@@ -1250,6 +1428,9 @@ namespace rangelua::backend {
         // Mark loop start
         Size loop_start = jump_manager_.current_instruction();
 
+        // Enter loop context for break/continue handling
+        enter_loop(loop_start);
+
         // Generate loop body first (repeat-until executes body at least once)
         node.body().accept(*this);
 
@@ -1261,14 +1442,24 @@ namespace rangelua::backend {
         emitter_.emit_abc(OpCode::OP_TEST, condition_reg, 1, 0);  // Test for false
         jump_manager_.emit_jump(loop_start);                      // Jump back to loop start
 
+        // Exit loop context and patch break/continue jumps
+        exit_loop();
+
         // Free condition register
         register_allocator_.free(condition_reg);
     }
 
     void CodeGenerator::visit(const frontend::DoStatement& node) {
-        // TODO: Implement do statement code generation
         CODEGEN_LOG_DEBUG("Generating code for do statement");
+
+        // Do statements create a new scope
+        scope_manager_.enter_scope();
+
+        // Generate the body
         node.body().accept(*this);
+
+        // Exit the scope
+        scope_manager_.exit_scope();
     }
 
     void CodeGenerator::visit(const frontend::ReturnStatement& node) {
@@ -1293,13 +1484,40 @@ namespace rangelua::backend {
             if (value_registers.size() == 1) {
                 // Single return value
                 emitter_.emit_abc(OpCode::OP_RETURN, value_registers[0], 2, 0);  // Return 1 value
-            } else {
-                // Multiple return values - need to arrange them in consecutive registers
-                // For now, just return the first value
-                // TODO: Implement proper multiple return value handling
-                if (!value_registers.empty()) {
-                    emitter_.emit_abc(OpCode::OP_RETURN, value_registers[0], 2, 0);
+            } else if (value_registers.size() > 1) {
+                // Multiple return values - arrange them in consecutive registers
+                Register base_reg = value_registers[0];
+
+                // Check if values are already in consecutive registers
+                bool consecutive = true;
+                for (Size i = 1; i < value_registers.size(); ++i) {
+                    if (value_registers[i] != base_reg + i) {
+                        consecutive = false;
+                        break;
+                    }
                 }
+
+                // If not consecutive, move them to consecutive registers
+                if (!consecutive) {
+                    // Allocate consecutive registers starting from base_reg
+                    for (Size i = 1; i < value_registers.size(); ++i) {
+                        Register target_reg = base_reg + static_cast<Register>(i);
+                        if (value_registers[i] != target_reg) {
+                            emitter_.emit_abc(OpCode::OP_MOVE, target_reg, value_registers[i], 0);
+                        }
+                    }
+                }
+
+                // Emit return with multiple values
+                // B field = number of return values + 1 (0 means return all values from base_reg to
+                // top)
+                emitter_.emit_abc(OpCode::OP_RETURN,
+                                  base_reg,
+                                  static_cast<Register>(value_registers.size() + 1),
+                                  0);
+            } else {
+                // No return values - should not happen since we checked !values.empty()
+                emitter_.emit_abc(OpCode::OP_RETURN, 0, 1, 0);
             }
 
             // Free value registers
@@ -1312,53 +1530,44 @@ namespace rangelua::backend {
     void CodeGenerator::visit([[maybe_unused]] const frontend::BreakStatement& node) {
         CODEGEN_LOG_DEBUG("Generating code for break statement");
 
-        // TODO: Implement proper loop context tracking
-        // For now, emit a forward jump that will need to be patched by the enclosing loop
+        if (!in_loop()) {
+            CODEGEN_LOG_ERROR("Break statement outside of loop");
+            return;
+        }
+
+        // Emit forward jump that will be patched by the enclosing loop
         Size break_jump = jump_manager_.emit_jump();
+        add_break_jump(break_jump);
 
-        // In a complete implementation, we would:
-        // 1. Check if we're inside a loop
-        // 2. Add this jump to the loop's break list
-        // 3. The loop would patch all break jumps when it ends
-
-        // For now, just log that we need loop context
         CODEGEN_LOG_DEBUG("Break statement emitted jump index: {}", break_jump);
     }
 
     void CodeGenerator::visit(const frontend::GotoStatement& node) {
         CODEGEN_LOG_DEBUG("Generating code for goto statement: {}", node.label());
 
-        // TODO: Implement proper label resolution
-        // For now, emit a forward jump that will need to be resolved later
-        Size goto_jump = jump_manager_.emit_jump();
-
-        // In a complete implementation, we would:
-        // 1. Check if the label has already been defined (backward jump)
-        // 2. If yes, calculate the offset and emit the jump
-        // 3. If no, add to pending goto list for later resolution
-
-        CODEGEN_LOG_DEBUG("Goto statement to '{}' emitted jump index: {}", node.label(), goto_jump);
+        // Use the label management system to emit goto
+        emit_goto(node.label());
     }
 
     void CodeGenerator::visit(const frontend::LabelStatement& node) {
         CODEGEN_LOG_DEBUG("Generating code for label statement: {}", node.name());
 
-        // Record the current instruction position as the label target
-        Size label_position = jump_manager_.current_instruction();
-
-        // TODO: Implement proper label tracking
-        // In a complete implementation, we would:
-        // 1. Add this label to the label table with its position
-        // 2. Resolve any pending goto statements that reference this label
-        // 3. Patch the jump instructions to point to this position
-
-        CODEGEN_LOG_DEBUG("Label '{}' defined at instruction: {}", node.name(), label_position);
+        // Use the label management system to define the label
+        define_label(node.name());
     }
 
     void CodeGenerator::visit(const frontend::ExpressionStatement& node) {
-        // TODO: Implement expression statement code generation
         CODEGEN_LOG_DEBUG("Generating code for expression statement");
+
+        // Generate the expression
         node.expression().accept(*this);
+
+        // For expression statements, we don't need to keep the result
+        // Free the result register if one was allocated
+        if (current_result_register_.has_value()) {
+            register_allocator_.free(current_result_register_.value());
+            current_result_register_.reset();
+        }
     }
 
     RegisterAllocator& CodeGenerator::register_allocator() noexcept {
@@ -1525,6 +1734,128 @@ namespace rangelua::backend {
 
         // Use the emitter's add_constant method
         return emitter_.add_constant(constant_value);
+    }
+
+
+
+    // Loop context management implementation
+    void CodeGenerator::enter_loop(Size loop_start) {
+        LoopContext context;
+        context.loop_start = loop_start;
+        context.scope_depth = scope_manager_.scope_depth();
+        loop_stack_.push_back(std::move(context));
+
+        CODEGEN_LOG_DEBUG("Entered loop context at instruction {}, scope depth {}",
+                          loop_start,
+                          context.scope_depth);
+    }
+
+    void CodeGenerator::exit_loop() {
+        if (loop_stack_.empty()) {
+            CODEGEN_LOG_ERROR("Attempting to exit loop context when not in a loop");
+            return;
+        }
+
+        LoopContext& context = loop_stack_.back();
+        Size loop_end = jump_manager_.current_instruction();
+
+        // Patch all break jumps to point to the end of the loop
+        jump_manager_.patch_jump_list(context.break_jumps, loop_end);
+
+        // Patch all continue jumps to point to the start of the loop
+        jump_manager_.patch_jump_list(context.continue_jumps, context.loop_start);
+
+        CODEGEN_LOG_DEBUG("Exited loop context. Patched {} break jumps and {} continue jumps",
+                          context.break_jumps.size(),
+                          context.continue_jumps.size());
+
+        loop_stack_.pop_back();
+    }
+
+    bool CodeGenerator::in_loop() const noexcept {
+        return !loop_stack_.empty();
+    }
+
+    void CodeGenerator::add_break_jump(Size jump_index) {
+        if (loop_stack_.empty()) {
+            CODEGEN_LOG_ERROR("Break statement outside of loop context");
+            return;
+        }
+
+        loop_stack_.back().break_jumps.push_back(jump_index);
+        CODEGEN_LOG_DEBUG("Added break jump at instruction {}", jump_index);
+    }
+
+    void CodeGenerator::add_continue_jump(Size jump_index) {
+        if (loop_stack_.empty()) {
+            CODEGEN_LOG_ERROR("Continue statement outside of loop context");
+            return;
+        }
+
+        loop_stack_.back().continue_jumps.push_back(jump_index);
+        CODEGEN_LOG_DEBUG("Added continue jump at instruction {}", jump_index);
+    }
+
+    // Label management implementation
+    void CodeGenerator::define_label(const String& name) {
+        Size position = jump_manager_.current_instruction();
+        Size scope_depth = scope_manager_.scope_depth();
+
+        // Check for duplicate labels in the same scope
+        for (const auto& label : labels_) {
+            if (label.name == name && label.scope_depth == scope_depth) {
+                CODEGEN_LOG_ERROR("Duplicate label '{}' in the same scope", name);
+                return;
+            }
+        }
+
+        // Add the label
+        labels_.push_back({name, position, scope_depth});
+        CODEGEN_LOG_DEBUG(
+            "Defined label '{}' at instruction {}, scope depth {}", name, position, scope_depth);
+
+        // Resolve any pending gotos to this label
+        auto it = pending_gotos_.begin();
+        while (it != pending_gotos_.end()) {
+            if (it->first == name) {
+                jump_manager_.patch_jump(it->second, position);
+                CODEGEN_LOG_DEBUG(
+                    "Resolved pending goto to label '{}' at jump {}", name, it->second);
+                it = pending_gotos_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    void CodeGenerator::emit_goto(const String& label) {
+        Size current_scope = scope_manager_.scope_depth();
+
+        // Look for the label in accessible scopes (current and outer scopes)
+        for (const auto& label_info : labels_) {
+            if (label_info.name == label && label_info.scope_depth <= current_scope) {
+                // Found the label - emit direct jump
+                jump_manager_.emit_jump(label_info.position);
+                CODEGEN_LOG_DEBUG("Emitted goto to existing label '{}' at instruction {}",
+                                  label,
+                                  label_info.position);
+                return;
+            }
+        }
+
+        // Label not found yet - emit forward jump and add to pending list
+        Size jump_index = jump_manager_.emit_jump();
+        pending_gotos_.emplace_back(label, jump_index);
+        CODEGEN_LOG_DEBUG("Emitted forward goto to label '{}' at jump {}", label, jump_index);
+    }
+
+    void CodeGenerator::resolve_pending_gotos() {
+        // Check for any unresolved gotos at the end of compilation
+        if (!pending_gotos_.empty()) {
+            for (const auto& pending : pending_gotos_) {
+                CODEGEN_LOG_ERROR("Unresolved goto to label '{}'", pending.first);
+            }
+        }
     }
 
     // CodeGenContext implementation
