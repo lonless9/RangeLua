@@ -227,6 +227,83 @@ namespace rangelua::runtime {
         return !(*this == other);
     }
 
+    // Upvalue implementation
+    Upvalue::Upvalue(Value* stack_location)
+        : GCObject(LuaType::UPVALUE), stackLocation_(stack_location), isOpen_(true) {}
+
+    Upvalue::Upvalue(Value value)
+        : GCObject(LuaType::UPVALUE), closedValue_(std::move(value)), isOpen_(false) {}
+
+    Upvalue::~Upvalue() {
+        if (isOpen_) {
+            // For open upvalues, we don't own the stack location
+            stackLocation_ = nullptr;
+        } else {
+            // For closed upvalues, explicitly destroy the value
+            closedValue_.~Value();
+        }
+    }
+
+    bool Upvalue::isOpen() const noexcept {
+        return isOpen_;
+    }
+
+    bool Upvalue::isClosed() const noexcept {
+        return !isOpen_;
+    }
+
+    const Value& Upvalue::getValue() const noexcept {
+        if (isOpen_) {
+            static Value nil_value;  // Static nil value for when stackLocation_ is null
+            return stackLocation_ ? *stackLocation_ : nil_value;
+        }
+        return closedValue_;
+    }
+
+    void Upvalue::setValue(const Value& value) {
+        if (isOpen_) {
+            if (stackLocation_) {
+                *stackLocation_ = value;
+            }
+        } else {
+            closedValue_ = value;
+        }
+    }
+
+    void Upvalue::close() {
+        if (isOpen_ && stackLocation_) {
+            // Copy the stack value to local storage
+            Value stack_value = *stackLocation_;
+            stackLocation_ = nullptr;
+            isOpen_ = false;
+
+            // Use placement new to initialize the closed value
+            new (&closedValue_) Value(std::move(stack_value));
+        }
+    }
+
+    Value* Upvalue::getStackLocation() const noexcept {
+        return isOpen_ ? stackLocation_ : nullptr;
+    }
+
+    void Upvalue::setStackLocation(Value* location) noexcept {
+        if (isOpen_) {
+            stackLocation_ = location;
+        }
+    }
+
+    void Upvalue::traverse(std::function<void(GCObject*)> visitor) {
+        // Visit the value if it's closed and contains GC objects
+        if (!isOpen_) {
+            // The Value class should handle its own traversal
+            // This is a placeholder for when Value supports GC traversal
+        }
+    }
+
+    Size Upvalue::objectSize() const noexcept {
+        return sizeof(Upvalue);
+    }
+
     // Function implementation
     Function::Function(CFunction func)
         : GCObject(LuaType::FUNCTION), type_(Type::C_FUNCTION), cFunction_(std::move(func)) {
@@ -278,25 +355,58 @@ namespace rangelua::runtime {
         return bytecode_;
     }
 
-    void Function::addUpvalue(const Value& value) {
-        upvalues_.push_back(value);
+    bool Function::isClosure() const noexcept {
+        return type_ == Type::CLOSURE;
+    }
+
+    void Function::makeClosure() {
         if (type_ != Type::CLOSURE) {
             type_ = Type::CLOSURE;
         }
     }
 
-    Value Function::getUpvalue(Size index) const {
+    void Function::addUpvalue(GCPtr<Upvalue> upvalue) {
+        upvalues_.push_back(std::move(upvalue));
+        if (type_ != Type::CLOSURE) {
+            type_ = Type::CLOSURE;
+        }
+    }
+
+    GCPtr<Upvalue> Function::getUpvalue(Size index) const {
         if (index >= upvalues_.size()) {
-            return Value{};  // Return nil for out-of-bounds
+            return GCPtr<Upvalue>{};  // Return empty GCPtr for out-of-bounds
         }
         return upvalues_[index];
     }
 
-    void Function::setUpvalue(Size index, const Value& value) {
+    void Function::setUpvalue(Size index, GCPtr<Upvalue> upvalue) {
         if (index >= upvalues_.size()) {
             upvalues_.resize(index + 1);
         }
-        upvalues_[index] = value;
+        upvalues_[index] = std::move(upvalue);
+    }
+
+    // Legacy upvalue interface (for compatibility)
+    void Function::addUpvalue(const Value& value) {
+        // Create a closed upvalue with the given value
+        auto upvalue = GCPtr<Upvalue>(new Upvalue(value));
+        addUpvalue(upvalue);
+    }
+
+    Value Function::getUpvalueValue(Size index) const {
+        auto upvalue = getUpvalue(index);
+        return upvalue ? upvalue->getValue() : Value{};
+    }
+
+    void Function::setUpvalueValue(Size index, const Value& value) {
+        auto upvalue = getUpvalue(index);
+        if (upvalue) {
+            upvalue->setValue(value);
+        } else {
+            // Create new closed upvalue if it doesn't exist
+            auto new_upvalue = GCPtr<Upvalue>(new Upvalue(value));
+            setUpvalue(index, new_upvalue);
+        }
     }
 
     std::vector<Value> Function::call(const std::vector<Value>& args) const {
@@ -311,24 +421,20 @@ namespace rangelua::runtime {
     void Function::traverse(std::function<void(GCObject*)> visitor) {
         // Traverse upvalues
         for (const auto& upvalue : upvalues_) {
-            if (upvalue.is_gc_object()) {
-                visitor(upvalue.as_gc_object());
+            if (upvalue) {
+                visitor(upvalue.get());
             }
         }
 
-        // Traverse constants
-        for (const auto& constant : constants_) {
-            if (constant.is_gc_object()) {
-                visitor(constant.as_gc_object());
-            }
-        }
+        // Traverse constants if they contain GC objects
+        // This would need to be implemented when Value supports GC traversal
+        // For now, constants are assumed to be primitive values
     }
 
     Size Function::objectSize() const noexcept {
-        return sizeof(Function) +
-               bytecode_.capacity() * sizeof(Instruction) +
+        return sizeof(Function) + bytecode_.capacity() * sizeof(Instruction) +
                constants_.capacity() * sizeof(Value) +
-               upvalues_.capacity() * sizeof(Value);
+               upvalues_.capacity() * sizeof(GCPtr<Upvalue>);
     }
 
     // Userdata implementation

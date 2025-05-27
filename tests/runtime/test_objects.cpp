@@ -11,20 +11,17 @@
 #include <rangelua/runtime/value.hpp>
 #include <rangelua/runtime/gc.hpp>
 
-using rangelua::runtime::Table;
-using rangelua::runtime::Function;
-using rangelua::runtime::Userdata;
-using rangelua::runtime::Coroutine;
-using rangelua::runtime::Value;
-using rangelua::runtime::ValueType;
-using rangelua::runtime::makeGCObject;
-using rangelua::runtime::GCPtr;
-using rangelua::runtime::GCObject;
-using rangelua::String;
 using rangelua::Number;
 using rangelua::Size;
-
-namespace vf = rangelua::runtime::value_factory;
+using rangelua::String;
+using rangelua::runtime::Coroutine;
+using rangelua::runtime::Function;
+using rangelua::runtime::GCObject;
+using rangelua::runtime::GCPtr;
+using rangelua::runtime::makeGCObject;
+using rangelua::runtime::Table;
+using rangelua::runtime::Userdata;
+using rangelua::runtime::Value;
 
 TEST_CASE("Table basic operations", "[objects][table]") {
     SECTION("Table creation and basic operations") {
@@ -267,25 +264,25 @@ TEST_CASE("Function upvalue operations", "[objects][function][upvalues]") {
         REQUIRE(function->type() == Function::Type::CLOSURE);  // Should become closure
 
         // Get upvalues
-        Value upval1 = function->getUpvalue(0);
+        Value upval1 = function->getUpvalueValue(0);
         REQUIRE(upval1.is_number());
         auto num_result = upval1.to_number();
         REQUIRE(std::holds_alternative<Number>(num_result));
         REQUIRE(std::get<Number>(num_result) == Catch::Approx(42.0));
 
-        Value upval2 = function->getUpvalue(1);
+        Value upval2 = function->getUpvalueValue(1);
         REQUIRE(upval2.is_string());
         auto str_result = upval2.to_string();
         REQUIRE(std::holds_alternative<String>(str_result));
         REQUIRE(std::get<String>(str_result) == "hello");
 
         // Test out-of-bounds access
-        Value nil_upval = function->getUpvalue(10);
+        Value nil_upval = function->getUpvalueValue(10);
         REQUIRE(nil_upval.is_nil());
 
         // Set upvalue
-        function->setUpvalue(0, Value(99.0));
-        Value modified_upval = function->getUpvalue(0);
+        function->setUpvalueValue(0, Value(99.0));
+        Value modified_upval = function->getUpvalueValue(0);
         REQUIRE(modified_upval.is_number());
         auto mod_num_result = modified_upval.to_number();
         REQUIRE(std::holds_alternative<Number>(mod_num_result));
@@ -575,7 +572,7 @@ TEST_CASE("Object edge cases and error handling", "[objects][edge_cases]") {
 
         REQUIRE(func->upvalueCount() == 100);
 
-        Value upval_50 = func->getUpvalue(50);
+        Value upval_50 = func->getUpvalueValue(50);
         REQUIRE(upval_50.is_number());
         auto num_result = upval_50.to_number();
         REQUIRE(std::holds_alternative<Number>(num_result));

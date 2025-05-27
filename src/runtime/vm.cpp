@@ -5,6 +5,7 @@
  */
 
 #include <rangelua/core/error.hpp>
+#include <rangelua/runtime/objects.hpp>
 #include <rangelua/runtime/vm.hpp>
 #include <rangelua/utils/debug.hpp>
 #include <rangelua/utils/logger.hpp>
@@ -38,35 +39,48 @@ namespace rangelua::runtime {
     Result<std::vector<Value>> VirtualMachine::execute(const backend::BytecodeFunction& function,
                                                        const std::vector<Value>& args) {
         VM_LOG_INFO("Starting execution of function: {}", function.name);
+        VM_LOG_DEBUG("Function has {} instructions, {} constants",
+                     function.instructions.size(),
+                     function.constants.size());
 
         try {
             // Setup initial call frame
             auto setup_result = setup_call_frame(function, args.size());
             if (std::holds_alternative<ErrorCode>(setup_result)) {
+                VM_LOG_ERROR("Failed to setup call frame");
                 return std::get<ErrorCode>(setup_result);
             }
 
             // Copy arguments to stack
+            VM_LOG_DEBUG("Copying {} arguments to stack", args.size());
             for (const auto& arg : args) {
                 push(arg);
             }
 
             state_ = VMState::Running;
+            VM_LOG_DEBUG("VM state set to Running, starting execution loop");
 
             // Main execution loop
+            size_t instruction_count = 0;
             while (state_ == VMState::Running && !call_stack_.empty()) {
                 auto step_result = step();
+                instruction_count++;
+
                 if (std::holds_alternative<ErrorCode>(step_result)) {
+                    VM_LOG_ERROR("VM execution failed at instruction {}", instruction_count);
                     state_ = VMState::Error;
                     return std::get<ErrorCode>(step_result);
                 }
             }
+
+            VM_LOG_DEBUG("VM execution completed after {} instructions", instruction_count);
 
             // Collect results
             std::vector<Value> results;
             // TODO: Collect return values from stack
 
             state_ = VMState::Finished;
+            VM_LOG_INFO("VM execution finished successfully");
             return results;
 
         } catch (const Exception& e) {
@@ -80,6 +94,7 @@ namespace rangelua::runtime {
 
     Status VirtualMachine::step() {
         if (call_stack_.empty()) {
+            VM_LOG_DEBUG("VM finished - no more call frames");
             state_ = VMState::Finished;
             return std::monostate{};
         }
@@ -87,6 +102,7 @@ namespace rangelua::runtime {
         auto& frame = call_stack_.back();
         if (!frame.function || frame.instruction_pointer >= frame.function->instructions.size()) {
             // Function finished
+            VM_LOG_DEBUG("Function finished, popping call frame");
             call_stack_.pop_back();
             return std::monostate{};
         }
@@ -95,8 +111,19 @@ namespace rangelua::runtime {
         Instruction instr = frame.function->instructions[frame.instruction_pointer++];
         OpCode opcode = backend::InstructionEncoder::decode_opcode(instr);
 
+        VM_LOG_DEBUG("Executing instruction: {} (PC: {})",
+                     backend::Disassembler::opcode_name(opcode),
+                     frame.instruction_pointer - 1);
+
         // Execute instruction
-        return execute_instruction(opcode, instr);
+        auto result = execute_instruction(opcode, instr);
+
+        if (std::holds_alternative<ErrorCode>(result)) {
+            VM_LOG_ERROR("Instruction execution failed: {}",
+                         error_code_to_string(std::get<ErrorCode>(result)));
+        }
+
+        return result;
     }
 
     Result<std::vector<Value>> VirtualMachine::call(const Value& function,
@@ -292,6 +319,27 @@ namespace rangelua::runtime {
                 Register b = InstructionEncoder::decode_b(instruction);
                 Register c = InstructionEncoder::decode_c(instruction);
                 return op_settable(a, b, c);
+            }
+
+            case OpCode::OP_GETTABUP: {
+                Register b = InstructionEncoder::decode_b(instruction);
+                Register c = InstructionEncoder::decode_c(instruction);
+                return op_gettabup(a, b, c);
+            }
+
+            case OpCode::OP_CLOSURE: {
+                std::uint32_t bx = InstructionEncoder::decode_bx(instruction);
+                return op_closure(a, static_cast<std::uint16_t>(bx));
+            }
+
+            case OpCode::OP_GETUPVAL: {
+                Register b = InstructionEncoder::decode_b(instruction);
+                return op_getupval(a, static_cast<UpvalueIndex>(b));
+            }
+
+            case OpCode::OP_SETUPVAL: {
+                Register b = InstructionEncoder::decode_b(instruction);
+                return op_setupval(a, static_cast<UpvalueIndex>(b));
             }
 
             default:
@@ -933,6 +981,38 @@ namespace rangelua::runtime {
             return ErrorCode::RUNTIME_ERROR;
         }
     }
+
+    Status VirtualMachine::op_gettabup(Register a, Register b, Register c) {
+        try {
+            VM_LOG_DEBUG("GETTABUP: R[{}] = UpValue[{}][K[{}]]", a, b, c);
+
+            // For now, implement as global variable access
+            // In a full implementation, this would access upvalues
+            // but for our simple case, we'll treat it as global access
+
+            if (!call_stack_.empty() && call_stack_.back().function) {
+                const auto& constants = call_stack_.back().function->constants;
+                if (c < constants.size()) {
+                    const auto& constant = constants[c];
+
+                    // The constant should be a string (global name)
+                    if (std::holds_alternative<String>(constant)) {
+                        const String& name = std::get<String>(constant);
+                        Value value = get_global(name);
+                        stack_at(a) = std::move(value);
+                        return std::monostate{};
+                    }
+                }
+            }
+
+            VM_LOG_ERROR("Invalid constant index in GETTABUP: {}", c);
+            return ErrorCode::RUNTIME_ERROR;
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
     // Function call operations implementation
     Status VirtualMachine::op_call(Register a, Register b, Register c) {
         try {
@@ -1079,13 +1159,19 @@ namespace rangelua::runtime {
         }
     }
 
-    // Upvalue operations (placeholder implementations)
+    // Upvalue operations
     Status VirtualMachine::op_getupval(Register a, UpvalueIndex b) {
         try {
-            // TODO: Implement proper upvalue handling
-            // For now, just set to nil
-            stack_at(a) = Value{};
-            VM_LOG_DEBUG("GETUPVAL: R{} = upvalue[{}] (not implemented)", a, b);
+            if (!call_stack_.empty() && call_stack_.back().function) {
+                // Get the current function's upvalues
+                // This would need to be implemented when we have proper closure support
+                // For now, just set to nil
+                stack_at(a) = Value{};
+                VM_LOG_DEBUG("GETUPVAL: R{} = upvalue[{}]", a, b);
+            } else {
+                stack_at(a) = Value{};
+                VM_LOG_DEBUG("GETUPVAL: No current function, setting R{} to nil", a);
+            }
             return std::monostate{};
         } catch (const Exception& e) {
             return e.code();
@@ -1096,9 +1182,14 @@ namespace rangelua::runtime {
 
     Status VirtualMachine::op_setupval(Register a, UpvalueIndex b) {
         try {
-            // TODO: Implement proper upvalue handling
-            [[maybe_unused]] const Value& value = stack_at(a);
-            VM_LOG_DEBUG("SETUPVAL: upvalue[{}] = R{} (not implemented)", b, a);
+            if (!call_stack_.empty() && call_stack_.back().function) {
+                // Set the current function's upvalue
+                // This would need to be implemented when we have proper closure support
+                [[maybe_unused]] const Value& value = stack_at(a);
+                VM_LOG_DEBUG("SETUPVAL: upvalue[{}] = R{}", b, a);
+            } else {
+                VM_LOG_DEBUG("SETUPVAL: No current function, ignoring");
+            }
             return std::monostate{};
         } catch (const Exception& e) {
             return e.code();
@@ -1157,6 +1248,73 @@ namespace rangelua::runtime {
             return e.code();
         } catch (...) {
             return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_closure(Register a, std::uint16_t bx) {
+        try {
+            if (!call_stack_.empty() && call_stack_.back().function) {
+                const auto& constants = call_stack_.back().function->constants;
+                if (bx < constants.size()) {
+                    // For now, just create a simple function value
+                    // In a full implementation, this would create a closure with upvalues
+                    stack_at(a) = Value{};  // Placeholder
+                    VM_LOG_DEBUG("CLOSURE: R{} = closure(K[{}]) (not fully implemented)", a, bx);
+                    return std::monostate{};
+                }
+            }
+
+            VM_LOG_ERROR("Invalid closure constant index: {}", bx);
+            return ErrorCode::RUNTIME_ERROR;
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    // Upvalue management
+    Upvalue* VirtualMachine::find_upvalue(Value* stack_location) {
+        // Search for existing upvalue pointing to this stack location
+        Upvalue* current = open_upvalues_;
+        Upvalue** prev = &open_upvalues_;
+
+        while (current && current->getStackLocation() > stack_location) {
+            prev = &current->next;
+            current = current->next;
+        }
+
+        // If found, return it
+        if (current && current->getStackLocation() == stack_location) {
+            return current;
+        }
+
+        // Create new upvalue
+        auto new_upvalue = new Upvalue(stack_location);
+        new_upvalue->next = current;
+        new_upvalue->previous = prev;
+        *prev = new_upvalue;
+
+        if (current) {
+            current->previous = &new_upvalue->next;
+        }
+
+        return new_upvalue;
+    }
+
+    void VirtualMachine::close_upvalues(Value* level) {
+        while (open_upvalues_ && open_upvalues_->getStackLocation() >= level) {
+            Upvalue* upvalue = open_upvalues_;
+            open_upvalues_ = upvalue->next;
+
+            if (open_upvalues_) {
+                open_upvalues_->previous = &open_upvalues_;
+            }
+
+            // Close the upvalue
+            upvalue->close();
+            upvalue->next = nullptr;
+            upvalue->previous = nullptr;
         }
     }
 

@@ -185,7 +185,8 @@ int main(int argc, char* argv[]) {
     }
 
     // Initialize RangeLua
-    if (!rangelua::initialize()) {
+    auto init_result = rangelua::initialize();
+    if (is_error(init_result)) {
         std::cerr << "Failed to initialize RangeLua\n";
         return 1;
     }

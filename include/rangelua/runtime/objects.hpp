@@ -92,6 +92,79 @@ namespace rangelua::runtime {
     };
 
     /**
+     * @brief Upvalue implementation for Lua closures
+     *
+     * Represents an upvalue that can be either open (pointing to a stack location)
+     * or closed (containing its own value). Follows Lua 5.5 upvalue semantics.
+     */
+    class Upvalue : public GCObject {
+    public:
+        /**
+         * @brief Create an open upvalue pointing to a stack location
+         * @param stack_location Pointer to the stack location
+         */
+        explicit Upvalue(Value* stack_location);
+
+        /**
+         * @brief Create a closed upvalue with a specific value
+         * @param value The value to store
+         */
+        explicit Upvalue(Value value);
+
+        ~Upvalue() override;
+
+        /**
+         * @brief Check if upvalue is open (pointing to stack)
+         */
+        [[nodiscard]] bool isOpen() const noexcept;
+
+        /**
+         * @brief Check if upvalue is closed (contains own value)
+         */
+        [[nodiscard]] bool isClosed() const noexcept;
+
+        /**
+         * @brief Get the current value of the upvalue
+         */
+        [[nodiscard]] const Value& getValue() const noexcept;
+
+        /**
+         * @brief Set the value of the upvalue
+         */
+        void setValue(const Value& value);
+
+        /**
+         * @brief Close the upvalue (copy stack value to local storage)
+         */
+        void close();
+
+        /**
+         * @brief Get stack location (only valid for open upvalues)
+         */
+        [[nodiscard]] Value* getStackLocation() const noexcept;
+
+        /**
+         * @brief Set stack location (for open upvalues)
+         */
+        void setStackLocation(Value* location) noexcept;
+
+        // Linked list support for VM upvalue management
+        Upvalue* next = nullptr;
+        Upvalue** previous = nullptr;
+
+        // GCObject interface
+        void traverse(std::function<void(GCObject*)> visitor) override;
+        [[nodiscard]] Size objectSize() const noexcept override;
+
+    private:
+        union {
+            Value* stackLocation_;  // For open upvalues
+            Value closedValue_;     // For closed upvalues
+        };
+        bool isOpen_ = true;
+    };
+
+    /**
      * @brief Lua function implementation
      *
      * Supports both C functions and Lua bytecode functions.
@@ -128,10 +201,19 @@ namespace rangelua::runtime {
         [[nodiscard]] bool isLuaFunction() const noexcept;
         [[nodiscard]] const std::vector<Instruction>& bytecode() const;
 
+        // Closure support
+        [[nodiscard]] bool isClosure() const noexcept;
+        void makeClosure();
+
         // Upvalue management
+        void addUpvalue(GCPtr<Upvalue> upvalue);
+        [[nodiscard]] GCPtr<Upvalue> getUpvalue(Size index) const;
+        void setUpvalue(Size index, GCPtr<Upvalue> upvalue);
+
+        // Legacy upvalue interface (for compatibility)
         void addUpvalue(const Value& value);
-        [[nodiscard]] Value getUpvalue(Size index) const;
-        void setUpvalue(Size index, const Value& value);
+        [[nodiscard]] Value getUpvalueValue(Size index) const;
+        void setUpvalueValue(Size index, const Value& value);
 
         // Call interface
         [[nodiscard]] std::vector<Value> call(const std::vector<Value>& args) const;
@@ -152,7 +234,7 @@ namespace rangelua::runtime {
         std::vector<Value> constants_;
 
         // Upvalues (for closures)
-        std::vector<Value> upvalues_;
+        std::vector<GCPtr<Upvalue>> upvalues_;
 
         // Debug information
         String name_;

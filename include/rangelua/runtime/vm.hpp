@@ -223,6 +223,9 @@ namespace rangelua::runtime {
         std::vector<CallFrame> call_stack_;
         std::unordered_map<String, Value> globals_;
 
+        // Upvalue management
+        class Upvalue* open_upvalues_ = nullptr;  // Linked list of open upvalues
+
         // Current execution context
         Size stack_top_ = 0;
         ErrorCode last_error_ = ErrorCode::SUCCESS;
@@ -272,6 +275,7 @@ namespace rangelua::runtime {
         Status op_len(Register a, Register b);
 
         Status op_gettable(Register a, Register b, Register c);
+        Status op_gettabup(Register a, Register b, Register c);
         Status op_settable(Register a, Register b, Register c);
         Status op_newtable(Register a);
 
@@ -288,6 +292,12 @@ namespace rangelua::runtime {
 
         Status op_getglobal(Register a, std::uint16_t bx);
         Status op_setglobal(Register a, std::uint16_t bx);
+
+        Status op_closure(Register a, std::uint16_t bx);
+
+        // Upvalue management
+        class Upvalue* find_upvalue(Value* stack_location);
+        void close_upvalues(Value* level);
 
         // Error handling
         void set_error(ErrorCode code);

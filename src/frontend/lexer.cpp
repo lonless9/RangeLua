@@ -94,45 +94,50 @@ namespace rangelua::frontend {
             if (peeked_token_.has_value()) {
                 auto token = std::move(peeked_token_.value());
                 peeked_token_.reset();
+                utils::loggers::lexer()->debug("Returning peeked token: {}", token.to_string());
                 return token;
             }
 
             skip_whitespace_and_comments();
 
             if (at_end()) {
+                utils::loggers::lexer()->debug("Reached end of file");
                 return {TokenType::EndOfFile, "", current_location()};
             }
 
             const auto start_location = current_location();
             const char current_char = current();
 
+            utils::loggers::lexer()->debug("Tokenizing character '{}' at {}:{}",
+                                           current_char,
+                                           start_location.line_,
+                                           start_location.column_);
+
+            Token token;
             // Handle different token types
             if (is_alpha(current_char)) {
-                return read_identifier_or_keyword(start_location);
-            }
-
-            if (is_digit(current_char)) {
-                return read_number(start_location);
-            }
-
-            if (current_char == '.' && is_digit(peek())) {
-                return read_number(start_location);
-            }
-
-            if (current_char == '"' || current_char == '\'') {
-                return read_string(start_location);
-            }
-
-            if (current_char == '[') {
+                token = read_identifier_or_keyword(start_location);
+            } else if (is_digit(current_char)) {
+                token = read_number(start_location);
+            } else if (current_char == '.' && is_digit(peek())) {
+                token = read_number(start_location);
+            } else if (current_char == '"' || current_char == '\'') {
+                token = read_string(start_location);
+            } else if (current_char == '[') {
                 // Check for long string
                 auto sep_level = check_long_string_separator();
                 if (sep_level >= 0) {
-                    return read_long_string(start_location, sep_level);
+                    token = read_long_string(start_location, sep_level);
+                } else {
+                    token = read_operator_or_delimiter(start_location);
                 }
+            } else {
+                // Single and multi-character operators and delimiters
+                token = read_operator_or_delimiter(start_location);
             }
 
-            // Single and multi-character operators and delimiters
-            return read_operator_or_delimiter(start_location);
+            utils::loggers::lexer()->debug("Generated token: {}", token.to_string());
+            return token;
         }
 
         const Token& peek_token() {

@@ -58,31 +58,46 @@ namespace rangelua::frontend {
                 return ErrorCode::SYNTAX_ERROR;
             }
 
+            PARSER_LOG_DEBUG("Parsing statement starting with token: {}",
+                             token_type_to_string(current_token_.type));
+
             // Check for statement keywords
             switch (current_token_.type) {
                 case TokenType::Local:
+                    PARSER_LOG_DEBUG("Parsing local statement");
                     return parse_local_statement();
                 case TokenType::Function:
+                    PARSER_LOG_DEBUG("Parsing function declaration");
                     return parse_function_declaration(false);
                 case TokenType::If:
+                    PARSER_LOG_DEBUG("Parsing if statement");
                     return parse_if_statement();
                 case TokenType::While:
+                    PARSER_LOG_DEBUG("Parsing while statement");
                     return parse_while_statement();
                 case TokenType::For:
+                    PARSER_LOG_DEBUG("Parsing for statement");
                     return parse_for_statement();
                 case TokenType::Repeat:
+                    PARSER_LOG_DEBUG("Parsing repeat statement");
                     return parse_repeat_statement();
                 case TokenType::Do:
+                    PARSER_LOG_DEBUG("Parsing do statement");
                     return parse_do_statement();
                 case TokenType::Return:
+                    PARSER_LOG_DEBUG("Parsing return statement");
                     return parse_return_statement();
                 case TokenType::Break:
+                    PARSER_LOG_DEBUG("Parsing break statement");
                     return parse_break_statement();
                 case TokenType::Goto:
+                    PARSER_LOG_DEBUG("Parsing goto statement");
                     return parse_goto_statement();
                 case TokenType::DoubleColon:
+                    PARSER_LOG_DEBUG("Parsing label statement");
                     return parse_label_statement();
                 default:
+                    PARSER_LOG_DEBUG("Parsing assignment or expression statement");
                     // Try to parse as assignment or expression statement
                     return parse_assignment_or_expression_statement();
             }

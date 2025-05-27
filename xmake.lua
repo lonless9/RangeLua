@@ -58,12 +58,12 @@ target("rangelua_core")
     add_headerfiles("include/rangelua/**.hpp")
 
 -- Main interpreter target
--- target("rangelua")
---     set_kind("binary")
---     add_packages("spdlog")
---     set_rundir("$(projectdir)")
---     add_deps("rangelua_core")
---     add_files("src/main.cpp")
+target("rangelua")
+    set_kind("binary")
+    add_packages("spdlog")
+    set_rundir("$(projectdir)")
+    add_deps("rangelua_core")
+    add_files("src/main.cpp")
 
 -- Unit tests target
 target("rangelua_test")
@@ -72,79 +72,6 @@ target("rangelua_test")
     add_deps("rangelua_core")
     add_files("tests/**.cpp")
     -- Note: Using custom test main instead of CATCH_CONFIG_MAIN for logging support
-
--- Error and Debug demo target
-target("error_debug_demo")
-    set_kind("binary")
-    add_deps("rangelua_core")
-    add_packages("spdlog")
-
-    -- Source files
-    add_files("examples/debug/error_debug_demo.cpp")
-
-    -- Link with core library
-    add_links("rangelua_core")
-
--- Lexer Debug Test target
-target("lexer_debug_test")
-    set_kind("binary")
-    add_deps("rangelua_core")
-    add_packages("spdlog")
-
-    -- Source files
-    add_files("examples/debug/lexer_debug_test.cpp")
-
-    -- Link with core library
-    add_links("rangelua_core")
-
--- Comprehensive demo target
-target("comprehensive_demo")
-    set_kind("binary")
-    add_deps("rangelua_core")
-    add_packages("spdlog")
-
-    -- Source files
-    add_files("examples/debug/comprehensive_demo.cpp")
-
-    -- Link with core library
-    add_links("rangelua_core")
-
--- Enhanced AST demo target
-target("enhanced_ast_demo")
-    set_kind("binary")
-    add_deps("rangelua_core")
-    add_packages("spdlog")
-
-    -- Source files
-    add_files("examples/debug/enhanced_ast_demo.cpp")
-
-    -- Link with core library
-    add_links("rangelua_core")
-
--- Test parser demo target
-target("test_parser_demo")
-    set_kind("binary")
-    add_deps("rangelua_core")
-    add_packages("spdlog")
-
-    -- Source files
-    add_files("examples/test_parser_demo.cpp")
-
-    -- Link with core library
-    add_links("rangelua_core")
-
--- Enhanced logging demo target
-target("enhanced_logging_demo")
-    set_kind("binary")
-    add_deps("rangelua_core")
-    add_packages("spdlog")
-
-    -- Source files
-    add_files("examples/debug/enhanced_logging_demo.cpp")
-
-    -- Link with core library
-    add_links("rangelua_core")
-
 -- Benchmark target
 -- target("rangelua_benchmark")
 --     set_kind("binary")
