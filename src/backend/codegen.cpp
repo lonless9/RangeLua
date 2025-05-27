@@ -225,6 +225,100 @@ namespace rangelua::backend {
         scope_manager_.exit_scope();
     }
 
+    // New AST visitor implementations
+    void CodeGenerator::visit(const frontend::MethodCallExpression& node) {
+        // TODO: Implement method call code generation
+        CODEGEN_LOG_DEBUG("Generating code for method call: {}", node.method_name());
+    }
+
+    void CodeGenerator::visit(const frontend::TableAccessExpression& node) {
+        // TODO: Implement table access code generation
+        CODEGEN_LOG_DEBUG("Generating code for table access");
+    }
+
+    void CodeGenerator::visit(const frontend::TableConstructorExpression& node) {
+        // TODO: Implement table constructor code generation
+        CODEGEN_LOG_DEBUG("Generating code for table constructor");
+    }
+
+    void CodeGenerator::visit(const frontend::FunctionExpression& node) {
+        // TODO: Implement function expression code generation
+        CODEGEN_LOG_DEBUG("Generating code for function expression");
+    }
+
+    void CodeGenerator::visit(const frontend::VarargExpression& node) {
+        // TODO: Implement vararg expression code generation
+        CODEGEN_LOG_DEBUG("Generating code for vararg expression");
+    }
+
+    void CodeGenerator::visit(const frontend::ParenthesizedExpression& node) {
+        // TODO: Implement parenthesized expression code generation
+        CODEGEN_LOG_DEBUG("Generating code for parenthesized expression");
+        node.expression().accept(*this);
+    }
+
+    void CodeGenerator::visit(const frontend::LocalDeclarationStatement& node) {
+        // TODO: Implement local declaration code generation
+        CODEGEN_LOG_DEBUG("Generating code for local declaration");
+    }
+
+    void CodeGenerator::visit(const frontend::FunctionDeclarationStatement& node) {
+        // TODO: Implement function declaration code generation
+        CODEGEN_LOG_DEBUG("Generating code for function declaration");
+    }
+
+    void CodeGenerator::visit(const frontend::WhileStatement& node) {
+        // TODO: Implement while statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for while statement");
+    }
+
+    void CodeGenerator::visit(const frontend::ForNumericStatement& node) {
+        // TODO: Implement numeric for statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for numeric for statement");
+    }
+
+    void CodeGenerator::visit(const frontend::ForGenericStatement& node) {
+        // TODO: Implement generic for statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for generic for statement");
+    }
+
+    void CodeGenerator::visit(const frontend::RepeatStatement& node) {
+        // TODO: Implement repeat statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for repeat statement");
+    }
+
+    void CodeGenerator::visit(const frontend::DoStatement& node) {
+        // TODO: Implement do statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for do statement");
+        node.body().accept(*this);
+    }
+
+    void CodeGenerator::visit(const frontend::ReturnStatement& node) {
+        // TODO: Implement return statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for return statement");
+    }
+
+    void CodeGenerator::visit(const frontend::BreakStatement& node) {
+        // TODO: Implement break statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for break statement");
+    }
+
+    void CodeGenerator::visit(const frontend::GotoStatement& node) {
+        // TODO: Implement goto statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for goto statement: {}", node.label());
+    }
+
+    void CodeGenerator::visit(const frontend::LabelStatement& node) {
+        // TODO: Implement label statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for label statement: {}", node.name());
+    }
+
+    void CodeGenerator::visit(const frontend::ExpressionStatement& node) {
+        // TODO: Implement expression statement code generation
+        CODEGEN_LOG_DEBUG("Generating code for expression statement");
+        node.expression().accept(*this);
+    }
+
     RegisterAllocator& CodeGenerator::register_allocator() noexcept {
         return register_allocator_;
     }

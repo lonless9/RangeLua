@@ -96,6 +96,18 @@ target("comprehensive_demo")
     -- Link with core library
     add_links("rangelua_core")
 
+-- Enhanced AST demo target
+target("enhanced_ast_demo")
+    set_kind("binary")
+    add_deps("rangelua_core")
+    add_packages("spdlog")
+
+    -- Source files
+    add_files("examples/debug/enhanced_ast_demo.cpp")
+
+    -- Link with core library
+    add_links("rangelua_core")
+
 -- Benchmark target
 -- target("rangelua_benchmark")
 --     set_kind("binary")

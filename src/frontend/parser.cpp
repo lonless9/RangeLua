@@ -153,6 +153,151 @@ namespace rangelua::frontend {
         return "Program";
     }
 
+    // New AST node implementations
+    void MethodCallExpression::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String MethodCallExpression::to_string() const {
+        return "MethodCallExpression(" + method_name_ + ")";
+    }
+
+    void TableAccessExpression::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String TableAccessExpression::to_string() const {
+        return is_dot_notation_ ? "TableAccessExpression(dot)" : "TableAccessExpression(bracket)";
+    }
+
+    void TableConstructorExpression::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String TableConstructorExpression::to_string() const {
+        return "TableConstructorExpression";
+    }
+
+    void FunctionExpression::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String FunctionExpression::to_string() const {
+        return "FunctionExpression";
+    }
+
+    void VarargExpression::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String VarargExpression::to_string() const {
+        return "VarargExpression";
+    }
+
+    void ParenthesizedExpression::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String ParenthesizedExpression::to_string() const {
+        return "ParenthesizedExpression";
+    }
+
+    void LocalDeclarationStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String LocalDeclarationStatement::to_string() const {
+        return "LocalDeclarationStatement";
+    }
+
+    void FunctionDeclarationStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String FunctionDeclarationStatement::to_string() const {
+        return is_local_ ? "LocalFunctionDeclarationStatement" : "FunctionDeclarationStatement";
+    }
+
+    void WhileStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String WhileStatement::to_string() const {
+        return "WhileStatement";
+    }
+
+    void ForNumericStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String ForNumericStatement::to_string() const {
+        return "ForNumericStatement";
+    }
+
+    void ForGenericStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String ForGenericStatement::to_string() const {
+        return "ForGenericStatement";
+    }
+
+    void RepeatStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String RepeatStatement::to_string() const {
+        return "RepeatStatement";
+    }
+
+    void DoStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String DoStatement::to_string() const {
+        return "DoStatement";
+    }
+
+    void ReturnStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String ReturnStatement::to_string() const {
+        return "ReturnStatement";
+    }
+
+    void BreakStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String BreakStatement::to_string() const {
+        return "BreakStatement";
+    }
+
+    void GotoStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String GotoStatement::to_string() const {
+        return "GotoStatement(" + label_ + ")";
+    }
+
+    void LabelStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String LabelStatement::to_string() const {
+        return "LabelStatement(" + name_ + ")";
+    }
+
+    void ExpressionStatement::accept(ASTVisitor& visitor) const {
+        visitor.visit(*this);
+    }
+
+    String ExpressionStatement::to_string() const {
+        return "ExpressionStatement";
+    }
+
     // Utility functions
     namespace parser_utils {
 
@@ -254,6 +399,120 @@ namespace rangelua::frontend {
 
     ProgramPtr ASTBuilder::make_program(StatementList statements, SourceLocation location) {
         return std::make_unique<Program>(std::move(statements), std::move(location));
+    }
+
+    // New AST builder methods
+    ExpressionPtr ASTBuilder::make_method_call(ExpressionPtr object,
+                                               String method_name,
+                                               ExpressionList arguments,
+                                               SourceLocation location) {
+        return std::make_unique<MethodCallExpression>(
+            std::move(object), std::move(method_name), std::move(arguments), std::move(location));
+    }
+
+    ExpressionPtr ASTBuilder::make_table_access(ExpressionPtr table,
+                                                ExpressionPtr key,
+                                                bool is_dot_notation,
+                                                SourceLocation location) {
+        return std::make_unique<TableAccessExpression>(
+            std::move(table), std::move(key), is_dot_notation, std::move(location));
+    }
+
+    ExpressionPtr ASTBuilder::make_table_constructor(TableConstructorExpression::FieldList fields,
+                                                     SourceLocation location) {
+        return std::make_unique<TableConstructorExpression>(std::move(fields), std::move(location));
+    }
+
+    ExpressionPtr ASTBuilder::make_function_expression(FunctionExpression::ParameterList parameters,
+                                                       StatementPtr body,
+                                                       SourceLocation location) {
+        return std::make_unique<FunctionExpression>(
+            std::move(parameters), std::move(body), std::move(location));
+    }
+
+    ExpressionPtr ASTBuilder::make_vararg(SourceLocation location) {
+        return std::make_unique<VarargExpression>(std::move(location));
+    }
+
+    ExpressionPtr ASTBuilder::make_parenthesized(ExpressionPtr expression,
+                                                 SourceLocation location) {
+        return std::make_unique<ParenthesizedExpression>(std::move(expression),
+                                                         std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_local_declaration(std::vector<String> names,
+                                                    ExpressionList values,
+                                                    SourceLocation location) {
+        return std::make_unique<LocalDeclarationStatement>(
+            std::move(names), std::move(values), std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_function_declaration(ExpressionPtr name,
+                                                       FunctionExpression::ParameterList parameters,
+                                                       StatementPtr body,
+                                                       bool is_local,
+                                                       SourceLocation location) {
+        return std::make_unique<FunctionDeclarationStatement>(
+            std::move(name), std::move(parameters), std::move(body), is_local, std::move(location));
+    }
+
+    StatementPtr
+    ASTBuilder::make_while(ExpressionPtr condition, StatementPtr body, SourceLocation location) {
+        return std::make_unique<WhileStatement>(
+            std::move(condition), std::move(body), std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_for_numeric(String variable,
+                                              ExpressionPtr start,
+                                              ExpressionPtr stop,
+                                              ExpressionPtr step,
+                                              StatementPtr body,
+                                              SourceLocation location) {
+        return std::make_unique<ForNumericStatement>(std::move(variable),
+                                                     std::move(start),
+                                                     std::move(stop),
+                                                     std::move(step),
+                                                     std::move(body),
+                                                     std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_for_generic(std::vector<String> variables,
+                                              ExpressionList expressions,
+                                              StatementPtr body,
+                                              SourceLocation location) {
+        return std::make_unique<ForGenericStatement>(
+            std::move(variables), std::move(expressions), std::move(body), std::move(location));
+    }
+
+    StatementPtr
+    ASTBuilder::make_repeat(StatementPtr body, ExpressionPtr condition, SourceLocation location) {
+        return std::make_unique<RepeatStatement>(
+            std::move(body), std::move(condition), std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_do(StatementPtr body, SourceLocation location) {
+        return std::make_unique<DoStatement>(std::move(body), std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_return(ExpressionList values, SourceLocation location) {
+        return std::make_unique<ReturnStatement>(std::move(values), std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_break(SourceLocation location) {
+        return std::make_unique<BreakStatement>(std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_goto(String label, SourceLocation location) {
+        return std::make_unique<GotoStatement>(std::move(label), std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_label(String name, SourceLocation location) {
+        return std::make_unique<LabelStatement>(std::move(name), std::move(location));
+    }
+
+    StatementPtr ASTBuilder::make_expression_statement(ExpressionPtr expression,
+                                                       SourceLocation location) {
+        return std::make_unique<ExpressionStatement>(std::move(expression), std::move(location));
     }
 
 }  // namespace rangelua::frontend

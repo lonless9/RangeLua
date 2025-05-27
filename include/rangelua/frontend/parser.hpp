@@ -197,7 +197,7 @@ namespace rangelua::frontend {
     }  // namespace parser_utils
 
     /**
-     * @brief AST builder helper class
+     * @brief AST builder helper class with complete Lua 5.5 support
      */
     class ASTBuilder {
     public:
@@ -215,17 +215,62 @@ namespace rangelua::frontend {
         static ExpressionPtr make_function_call(ExpressionPtr function,
                                                 ExpressionList arguments,
                                                 SourceLocation location = {});
+        static ExpressionPtr make_method_call(ExpressionPtr object,
+                                              String method_name,
+                                              ExpressionList arguments,
+                                              SourceLocation location = {});
+        static ExpressionPtr make_table_access(ExpressionPtr table,
+                                               ExpressionPtr key,
+                                               bool is_dot_notation = false,
+                                               SourceLocation location = {});
+        static ExpressionPtr make_table_constructor(TableConstructorExpression::FieldList fields,
+                                                    SourceLocation location = {});
+        static ExpressionPtr make_function_expression(FunctionExpression::ParameterList parameters,
+                                                      StatementPtr body,
+                                                      SourceLocation location = {});
+        static ExpressionPtr make_vararg(SourceLocation location = {});
+        static ExpressionPtr make_parenthesized(ExpressionPtr expression,
+                                                SourceLocation location = {});
 
         // Statement builders
         static StatementPtr make_block(StatementList statements, SourceLocation location = {});
         static StatementPtr make_assignment(ExpressionList targets,
                                             ExpressionList values,
                                             SourceLocation location = {});
+        static StatementPtr make_local_declaration(std::vector<String> names,
+                                                   ExpressionList values = {},
+                                                   SourceLocation location = {});
+        static StatementPtr make_function_declaration(ExpressionPtr name,
+                                                      FunctionExpression::ParameterList parameters,
+                                                      StatementPtr body,
+                                                      bool is_local = false,
+                                                      SourceLocation location = {});
         static StatementPtr make_if(ExpressionPtr condition,
                                     StatementPtr then_body,
                                     std::vector<IfStatement::ElseIfClause> elseif_clauses = {},
                                     StatementPtr else_body = nullptr,
                                     SourceLocation location = {});
+        static StatementPtr
+        make_while(ExpressionPtr condition, StatementPtr body, SourceLocation location = {});
+        static StatementPtr make_for_numeric(String variable,
+                                             ExpressionPtr start,
+                                             ExpressionPtr stop,
+                                             ExpressionPtr step,
+                                             StatementPtr body,
+                                             SourceLocation location = {});
+        static StatementPtr make_for_generic(std::vector<String> variables,
+                                             ExpressionList expressions,
+                                             StatementPtr body,
+                                             SourceLocation location = {});
+        static StatementPtr
+        make_repeat(StatementPtr body, ExpressionPtr condition, SourceLocation location = {});
+        static StatementPtr make_do(StatementPtr body, SourceLocation location = {});
+        static StatementPtr make_return(ExpressionList values = {}, SourceLocation location = {});
+        static StatementPtr make_break(SourceLocation location = {});
+        static StatementPtr make_goto(String label, SourceLocation location = {});
+        static StatementPtr make_label(String name, SourceLocation location = {});
+        static StatementPtr make_expression_statement(ExpressionPtr expression,
+                                                      SourceLocation location = {});
 
         // Program builder
         static ProgramPtr make_program(StatementList statements, SourceLocation location = {});

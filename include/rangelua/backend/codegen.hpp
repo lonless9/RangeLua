@@ -265,15 +265,33 @@ namespace rangelua::backend {
          */
         Status generate_statement(const frontend::Statement& stmt);
 
-        // AST Visitor implementation
+        // AST Visitor implementation - complete Lua 5.5 support
         void visit(const frontend::LiteralExpression& node) override;
         void visit(const frontend::IdentifierExpression& node) override;
         void visit(const frontend::BinaryOpExpression& node) override;
         void visit(const frontend::UnaryOpExpression& node) override;
         void visit(const frontend::FunctionCallExpression& node) override;
+        void visit(const frontend::MethodCallExpression& node) override;
+        void visit(const frontend::TableAccessExpression& node) override;
+        void visit(const frontend::TableConstructorExpression& node) override;
+        void visit(const frontend::FunctionExpression& node) override;
+        void visit(const frontend::VarargExpression& node) override;
+        void visit(const frontend::ParenthesizedExpression& node) override;
         void visit(const frontend::BlockStatement& node) override;
         void visit(const frontend::AssignmentStatement& node) override;
+        void visit(const frontend::LocalDeclarationStatement& node) override;
+        void visit(const frontend::FunctionDeclarationStatement& node) override;
         void visit(const frontend::IfStatement& node) override;
+        void visit(const frontend::WhileStatement& node) override;
+        void visit(const frontend::ForNumericStatement& node) override;
+        void visit(const frontend::ForGenericStatement& node) override;
+        void visit(const frontend::RepeatStatement& node) override;
+        void visit(const frontend::DoStatement& node) override;
+        void visit(const frontend::ReturnStatement& node) override;
+        void visit(const frontend::BreakStatement& node) override;
+        void visit(const frontend::GotoStatement& node) override;
+        void visit(const frontend::LabelStatement& node) override;
+        void visit(const frontend::ExpressionStatement& node) override;
         void visit(const frontend::Program& node) override;
 
         /**
