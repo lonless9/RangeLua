@@ -75,8 +75,10 @@ namespace rangelua::utils {
         ~DebugTimer() {
             auto duration = Debug::end_timer(name_);
             if constexpr (config::DEBUG_ENABLED) {
-                Debug::print("Timer '" + name_ + "' elapsed: " + std::to_string(duration.count()) +
-                             " ns");
+                // Use GC logger for timer messages since most timers are GC-related
+                String timer_msg =
+                    "Timer '" + name_ + "' elapsed: " + std::to_string(duration.count()) + " ns";
+                Debug::print(timer_msg);
             }
         }
 

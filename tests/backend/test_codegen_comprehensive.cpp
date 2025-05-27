@@ -4,10 +4,12 @@
  * @version 0.1.0
  */
 
-#include <catch2/catch_test_macros.hpp>
 #include <rangelua/backend/bytecode.hpp>
 #include <rangelua/backend/codegen.hpp>
 #include <rangelua/frontend/ast.hpp>
+#include <rangelua/utils/logger.hpp>
+
+#include <catch2/catch_test_macros.hpp>
 
 using namespace rangelua;
 using namespace rangelua::backend;
@@ -222,10 +224,11 @@ TEST_CASE("CodeGenerator constant deduplication", "[codegen][constants]") {
 
         auto function = emitter.get_function();
 
-        // Print debug information
-        std::cout << "Total constants: " << function.constants.size() << std::endl;
+        // Print debug information through logging module
+        CODEGEN_LOG_DEBUG("Total constants: {}", function.constants.size());
         for (size_t i = 0; i < function.constants.size(); ++i) {
-            std::cout << "Constant " << i << ": " << constant_value_to_string(function.constants[i]) << std::endl;
+            CODEGEN_LOG_DEBUG(
+                "Constant {}: {}", i, constant_value_to_string(function.constants[i]));
         }
 
         // Check if deduplication is working

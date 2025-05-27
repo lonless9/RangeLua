@@ -139,13 +139,10 @@ namespace rangelua::utils {
 
             String error_msg = oss.str();
 
-            // Log the assertion failure
+            // Log the assertion failure through the logging module only
             if (auto logger = utils::loggers::memory()) {
                 logger->critical(error_msg);
             }
-
-            // Print to stderr for immediate visibility
-            std::cerr << error_msg << std::flush;
 
             // Terminate in debug mode
             if constexpr (config::DEBUG_ENABLED) {
@@ -157,19 +154,18 @@ namespace rangelua::utils {
     void Debug::print(const String& message) {
         if constexpr (config::DEBUG_ENABLED) {
             std::ostringstream oss;
-            oss << "[DEBUG] [" << format_timestamp() << "] ";
+            oss << "[" << format_timestamp() << "] ";
             oss << "[" << get_thread_name() << "] ";
             oss << message;
 
             String debug_msg = oss.str();
 
-            // Log the debug message
+            // Log the debug message through the logging module only
             if (auto logger = utils::loggers::memory()) {
                 logger->debug(debug_msg);
             }
 
-            // Also print to stdout in debug mode
-            std::cout << debug_msg << std::endl;
+            // Remove direct stdout output - let logging module handle it
         }
     }
 
@@ -233,11 +229,10 @@ namespace rangelua::utils {
 
             String trace_msg = oss.str();
 
+            // Log the stack trace through the logging module only
             if (auto logger = utils::loggers::memory()) {
                 logger->debug(trace_msg);
             }
-
-            std::cout << trace_msg << std::flush;
         }
     }
 
