@@ -4,10 +4,9 @@
  * @version 0.1.0
  */
 
-#include <rangelua/runtime/value.hpp>
 #include <rangelua/runtime/objects.hpp>
+#include <rangelua/runtime/value.hpp>
 
-#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -18,7 +17,12 @@ namespace rangelua::runtime {
         // Constructor implementation moved here to avoid incomplete type issues
     }
 
-    Table::~Table() = default;
+    Table::~Table() {
+        // Explicitly clear containers to break potential circular references
+        hashPart_.clear();
+        arrayPart_.clear();
+        metatable_.reset();
+    }
     void Table::set(const Value& key, const Value& value) {
         if (isArrayIndex(key)) {
             auto num_result = key.to_number();
@@ -233,6 +237,13 @@ namespace rangelua::runtime {
           parameterCount_(paramCount), bytecode_(std::move(bytecode)) {
     }
 
+    Function::~Function() {
+        // Explicitly clear containers to break potential circular references
+        upvalues_.clear();
+        constants_.clear();
+        bytecode_.clear();
+    }
+
     Function::Type Function::type() const noexcept {
         return type_;
     }
@@ -325,6 +336,12 @@ namespace rangelua::runtime {
         : GCObject(LuaType::USERDATA), data_(data), size_(size), typeName_(std::move(typeName)) {
     }
 
+    Userdata::~Userdata() {
+        // Explicitly clear containers to break potential circular references
+        userValues_.clear();
+        metatable_.reset();
+    }
+
     void* Userdata::data() const noexcept {
         return data_;
     }
@@ -387,6 +404,13 @@ namespace rangelua::runtime {
     Coroutine::Coroutine(Size stackSize)
         : GCObject(LuaType::THREAD), status_(Status::SUSPENDED) {
         stack_.reserve(stackSize);
+    }
+
+    Coroutine::~Coroutine() {
+        // Explicitly clear containers to break potential circular references
+        stack_.clear();
+        yieldedValues_.clear();
+        currentFunction_.reset();
     }
 
     Coroutine::Status Coroutine::status() const noexcept {

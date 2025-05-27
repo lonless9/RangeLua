@@ -14,17 +14,16 @@
  */
 
 #include <functional>
+#include <typeinfo>
 #include <unordered_map>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include "../core/types.hpp"
 #include "gc.hpp"  // Include full GC system
+#include "value.hpp"  // Include full Value definition for hash support
 
 namespace rangelua::runtime {
-
-    // Forward declarations to avoid circular dependency
-    class Value;
 
     /**
      * @brief Lua table implementation
@@ -114,7 +113,7 @@ namespace rangelua::runtime {
 
         explicit Function(std::vector<Instruction> bytecode, Size paramCount = 0);
 
-        ~Function() override = default;
+        ~Function() override;
 
         // Function properties
         [[nodiscard]] Type type() const noexcept;
@@ -171,7 +170,7 @@ namespace rangelua::runtime {
     public:
         explicit Userdata(void* data, Size size, String typeName = "userdata");
 
-        ~Userdata() override = default;
+        ~Userdata() override;
 
         // Data access
         [[nodiscard]] void* data() const noexcept;
@@ -223,7 +222,7 @@ namespace rangelua::runtime {
 
         explicit Coroutine(Size stackSize = 1000);
 
-        ~Coroutine() override = default;
+        ~Coroutine() override;
 
         // Coroutine control
         [[nodiscard]] Status status() const noexcept;
@@ -263,5 +262,21 @@ namespace rangelua::runtime {
         // Yield/resume state
         std::vector<Value> yieldedValues_;
     };
+
+    // Template method implementations for Userdata
+    template <typename T>
+    T* Userdata::as() const noexcept {
+        if (is<T>()) {
+            return static_cast<T*>(data_);
+        }
+        return nullptr;
+    }
+
+    template <typename T>
+    bool Userdata::is() const noexcept {
+        // Simple type name comparison - in a real implementation,
+        // this could use RTTI or a more sophisticated type system
+        return typeName_ == typeid(T).name();
+    }
 
 }  // namespace rangelua::runtime
