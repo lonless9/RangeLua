@@ -419,7 +419,7 @@ namespace rangelua::frontend {
             advance();  // consume 'local'
 
             if (check(TokenType::Function)) {
-                return parse_function_declaration(true);
+                return parse_local_function();
             }
 
             // Parse local variable declaration
@@ -463,9 +463,77 @@ namespace rangelua::frontend {
                 std::move(names), std::move(values), current_location());
         }
 
-        Result<StatementPtr> parse_function_declaration(bool is_local) {
+        // Parse local function as local declaration with function expression
+        Result<StatementPtr> parse_local_function() {
             advance();  // consume 'function'
 
+            if (!check(TokenType::Identifier)) {
+                add_error("Expected function name after 'local function'", current_location());
+                return ErrorCode::SYNTAX_ERROR;
+            }
+
+            String function_name = current_token_.value;
+            advance();
+
+            // Parse parameters
+            if (!expect(TokenType::LeftParen, "Expected '(' after function name")) {
+                return ErrorCode::SYNTAX_ERROR;
+            }
+
+            FunctionExpression::ParameterList parameters;
+            if (!check(TokenType::RightParen)) {
+                if (check(TokenType::Identifier)) {
+                    parameters.emplace_back(current_token_.value);
+                    advance();
+
+                    while (match(TokenType::Comma)) {
+                        if (check(TokenType::Ellipsis)) {
+                            parameters.emplace_back("...", true);
+                            advance();
+                            break;
+                        } else if (check(TokenType::Identifier)) {
+                            parameters.emplace_back(current_token_.value);
+                            advance();
+                        } else {
+                            add_error("Expected parameter name", current_location());
+                            return ErrorCode::SYNTAX_ERROR;
+                        }
+                    }
+                } else if (check(TokenType::Ellipsis)) {
+                    parameters.emplace_back("...", true);
+                    advance();
+                }
+            }
+
+            if (!expect(TokenType::RightParen, "Expected ')' after parameters")) {
+                return ErrorCode::SYNTAX_ERROR;
+            }
+
+            // Parse body
+            auto body_result = parse_block_until(TokenType::End);
+            if (!is_success(body_result)) {
+                return body_result;
+            }
+
+            if (!expect(TokenType::End, "Expected 'end' after function body")) {
+                return ErrorCode::SYNTAX_ERROR;
+            }
+
+            // Create function expression
+            auto function_expr = ASTBuilder::make_function_expression(
+                std::move(parameters), get_value(std::move(body_result)), current_location());
+
+            // Create local declaration with function expression as value
+            std::vector<String> names = {std::move(function_name)};
+            ExpressionList values;
+            values.push_back(std::move(function_expr));
+
+            return ASTBuilder::make_local_declaration(
+                std::move(names), std::move(values), current_location());
+        }
+
+        // Parse function name with support for table.method and obj:method syntax
+        Result<ExpressionPtr> parse_function_name() {
             if (!check(TokenType::Identifier)) {
                 add_enhanced_error("Expected function name",
                                    current_location(),
@@ -475,6 +543,52 @@ namespace rangelua::frontend {
 
             auto name = ASTBuilder::make_identifier(current_token_.value, current_location());
             advance();
+
+            // Handle table.method syntax
+            while (match(TokenType::Dot)) {
+                if (!check(TokenType::Identifier)) {
+                    add_error("Expected identifier after '.'", current_location());
+                    return ErrorCode::SYNTAX_ERROR;
+                }
+
+                auto field_name = current_token_.value;
+                auto location = current_location();
+                advance();
+
+                auto key = ASTBuilder::make_literal(field_name, location);
+                name =
+                    ASTBuilder::make_table_access(std::move(name), std::move(key), true, location);
+            }
+
+            // Handle obj:method syntax
+            if (match(TokenType::Colon)) {
+                if (!check(TokenType::Identifier)) {
+                    add_error("Expected method name after ':'", current_location());
+                    return ErrorCode::SYNTAX_ERROR;
+                }
+
+                auto method_name = current_token_.value;
+                auto location = current_location();
+                advance();
+
+                auto key = ASTBuilder::make_literal(method_name, location);
+                name =
+                    ASTBuilder::make_table_access(std::move(name), std::move(key), true, location);
+            }
+
+            return name;
+        }
+
+        Result<StatementPtr> parse_function_declaration(bool is_local) {
+            advance();  // consume 'function'
+
+            // Parse function name (supports table.method and obj:method syntax)
+            auto name_result = parse_function_name();
+            if (!is_success(name_result)) {
+                return ErrorCode::SYNTAX_ERROR;
+            }
+
+            auto name = get_value(std::move(name_result));
 
             // Parse parameters
             if (!expect(TokenType::LeftParen, "Expected '(' after function name")) {
