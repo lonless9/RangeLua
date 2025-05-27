@@ -178,6 +178,21 @@ namespace rangelua {
         return std::get<T>(std::move(result));
     }
 
+    // Factory functions for creating results (declared early for template dependencies)
+    template <typename T>
+    [[nodiscard]] constexpr Result<std::decay_t<T>> make_success(T&& value) {
+        return Result<std::decay_t<T>>{std::forward<T>(value)};
+    }
+
+    [[nodiscard]] constexpr Status make_success() {
+        return Status{std::monostate{}};
+    }
+
+    template <typename T>
+    [[nodiscard]] constexpr Result<T> make_error(ErrorCode error) {
+        return Result<T>{error};
+    }
+
     // Modern C++20 error handling with monadic operations
     template <typename T, typename F>
     constexpr auto and_then(const Result<T>& result, F&& func)
@@ -196,20 +211,62 @@ namespace rangelua {
         return result;
     }
 
-    // Factory functions for creating results
-    template <typename T>
-    [[nodiscard]] constexpr Result<T> make_success(T&& value) {
-        return Result<T>{std::forward<T>(value)};
+    template <typename T, typename F>
+    constexpr auto transform(const Result<T>& result, F&& func)
+        -> Result<decltype(func(std::declval<T>()))> {
+        if (is_success(result)) {
+            return make_success(std::forward<F>(func)(get_value(result)));
+        }
+        return make_error<decltype(func(std::declval<T>()))>(get_error(result));
     }
 
-    [[nodiscard]] constexpr Status make_success() {
-        return Status{std::monostate{}};
+    template <typename T, typename F>
+    constexpr auto transform_error(const Result<T>& result, F&& func) -> Result<T> {
+        if (is_error(result)) {
+            auto new_error = std::forward<F>(func)(get_error(result));
+            return make_error<T>(new_error);
+        }
+        return result;
     }
 
+    // Error handling utilities
     template <typename T>
-    [[nodiscard]] constexpr Result<T> make_error(ErrorCode error) {
-        return Result<T>{error};
+    [[nodiscard]] constexpr T value_or(const Result<T>& result, T&& default_value) {
+        if (is_success(result)) {
+            return get_value(result);
+        }
+        return std::forward<T>(default_value);
     }
+
+    template <typename T, typename F>
+    [[nodiscard]] constexpr T value_or_else(const Result<T>& result, F&& func) {
+        if (is_success(result)) {
+            return get_value(result);
+        }
+        return std::forward<F>(func)(get_error(result));
+    }
+
+    // Error propagation helper function for cleaner error handling
+    template <typename T>
+    constexpr auto try_unwrap(Result<T>&& result) -> T {
+        if (is_error(result)) {
+            throw RuntimeError("TRY operation failed with error: " +
+                               String(error_code_to_string(get_error(result))));
+        }
+        return get_value(std::move(result));
+    }
+
+// Error propagation macro for cleaner error handling (C++20 compatible)
+#define RANGELUA_TRY(expr) rangelua::try_unwrap(expr)
+
+    // Error logging utilities
+    void log_error(const Exception& ex);
+    void log_error(ErrorCode code, StringView message);
+
+    // Error formatting utilities
+    String format_error_message(ErrorCode code, StringView context = "");
+    String format_exception_details(const Exception& ex);
+    StringView error_code_to_string(ErrorCode code) noexcept;
 
 }  // namespace rangelua
 

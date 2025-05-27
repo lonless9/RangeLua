@@ -84,6 +84,30 @@ target("test_core_refactor")
     -- Link with core library
     add_links("rangelua_core")
 
+-- Error and Debug demo target
+target("error_debug_demo")
+    set_kind("binary")
+    add_deps("rangelua_core")
+    add_packages("spdlog")
+
+    -- Source files
+    add_files("examples/debug/error_debug_demo.cpp")
+
+    -- Link with core library
+    add_links("rangelua_core")
+
+-- Comprehensive demo target
+target("comprehensive_demo")
+    set_kind("binary")
+    add_deps("rangelua_core")
+    add_packages("spdlog")
+
+    -- Source files
+    add_files("examples/debug/comprehensive_demo.cpp")
+
+    -- Link with core library
+    add_links("rangelua_core")
+
 -- Benchmark target
 -- target("rangelua_benchmark")
 --     set_kind("binary")
