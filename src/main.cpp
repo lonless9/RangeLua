@@ -20,6 +20,7 @@ using namespace rangelua;
 struct Options {
     std::vector<std::string> files;
     std::string log_level = "info";
+    std::vector<std::string> module_log_levels;
     std::string log_file;
     bool interactive = false;
     bool version = false;
@@ -48,6 +49,10 @@ Options parse_args(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 opts.log_level = argv[++i];
             }
+        } else if (arg == "--module-log") {
+            if (i + 1 < argc) {
+                opts.module_log_levels.push_back(argv[++i]);
+            }
         } else if (arg == "--log-file") {
             if (i + 1 < argc) {
                 opts.log_file = argv[++i];
@@ -71,8 +76,11 @@ void print_help() {
     std::cout << "  -v, --version       Show version information\n";
     std::cout << "  -i, --interactive   Enter interactive mode\n";
     std::cout << "  -d, --debug         Enable debug mode\n";
-    std::cout << "  --log-level LEVEL   Set log level (trace, debug, info, warn, error, off)\n";
+    std::cout
+        << "  --log-level LEVEL   Set global log level (trace, debug, info, warn, error, off)\n";
+    std::cout << "  --module-log MOD:LVL Set module-specific log level (e.g., parser:debug)\n";
     std::cout << "  --log-file FILE     Write logs to file\n\n";
+    std::cout << "Available modules: lexer, parser, codegen, optimizer, vm, memory, gc\n\n";
     std::cout << "Examples:\n";
     std::cout << "  rangelua script.lua     # Execute script\n";
     std::cout << "  rangelua -i             # Interactive mode\n";
@@ -87,25 +95,6 @@ void print_version() {
     std::cout << "Compatible with Lua " << rangelua::lua_version() << "\n";
     std::cout << "Built with C++20 features\n";
     std::cout << "Copyright (c) 2024 RangeLua Project\n";
-}
-
-/**
- * @brief Convert string to log level
- */
-spdlog::level::level_enum string_to_log_level(const std::string& level) {
-    if (level == "trace")
-        return spdlog::level::trace;
-    if (level == "debug")
-        return spdlog::level::debug;
-    if (level == "info")
-        return spdlog::level::info;
-    if (level == "warn")
-        return spdlog::level::warn;
-    if (level == "error")
-        return spdlog::level::err;
-    if (level == "off")
-        return spdlog::level::off;
-    return spdlog::level::info;
 }
 
 /**
@@ -183,8 +172,13 @@ int main(int argc, char* argv[]) {
     }
 
     // Initialize logging
-    auto log_level = string_to_log_level(opts.log_level);
+    auto log_level = utils::Logger::string_to_log_level(opts.log_level);
     utils::Logger::initialize("rangelua", log_level);
+
+    // Configure module-specific log levels
+    if (!opts.module_log_levels.empty()) {
+        utils::Logger::configure_from_args(opts.module_log_levels);
+    }
 
     if (!opts.log_file.empty()) {
         utils::Logger::add_file_sink(opts.log_file);

@@ -2,7 +2,7 @@
 
 /**
  * @file logger.hpp
- * @brief Logging system with spdlog integration
+ * @brief Enhanced logging system with spdlog integration and module-specific control
  * @version 0.1.0
  */
 
@@ -11,6 +11,9 @@
 #include <spdlog/spdlog.h>
 
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "../core/config.hpp"
 #include "../core/types.hpp"
@@ -18,7 +21,7 @@
 namespace rangelua::utils {
 
     /**
-     * @brief Logger wrapper around spdlog
+     * @brief Enhanced logger wrapper around spdlog with module-specific control
      */
     class Logger {
     public:
@@ -50,6 +53,16 @@ namespace rangelua::utils {
         static void set_level(LogLevel level);
 
         /**
+         * @brief Set log level for specific module
+         */
+        static void set_module_level(const String& module_name, LogLevel level);
+
+        /**
+         * @brief Get log level for specific module
+         */
+        static LogLevel get_module_level(const String& module_name);
+
+        /**
          * @brief Add file sink
          */
         static void add_file_sink(const String& filename);
@@ -59,9 +72,32 @@ namespace rangelua::utils {
          */
         static void set_pattern(const String& pattern);
 
+        /**
+         * @brief Parse and apply module-specific log levels from command line arguments
+         * Format: "module1:level1,module2:level2" or "level" for global
+         */
+        static void configure_from_args(const std::vector<std::string>& log_configs);
+
+        /**
+         * @brief Convert string to log level
+         */
+        static LogLevel string_to_log_level(const std::string& level);
+
+        /**
+         * @brief Convert log level to string
+         */
+        static std::string log_level_to_string(LogLevel level);
+
+        /**
+         * @brief Get list of available modules
+         */
+        static std::vector<std::string> get_available_modules();
+
     private:
         static std::shared_ptr<spdlog::logger> default_logger_;
         static std::vector<spdlog::sink_ptr> sinks_;
+        static std::unordered_map<std::string, std::shared_ptr<spdlog::logger>> module_loggers_;
+        static std::unordered_map<std::string, LogLevel> module_levels_;
         static bool initialized_;
     };
 

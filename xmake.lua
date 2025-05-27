@@ -71,7 +71,7 @@ target("rangelua_test")
     add_packages("spdlog", "catch2")
     add_deps("rangelua_core")
     add_files("tests/**.cpp")
-    add_defines("CATCH_CONFIG_MAIN")
+    -- Note: Using custom test main instead of CATCH_CONFIG_MAIN for logging support
 
 -- Error and Debug demo target
 target("error_debug_demo")
@@ -129,6 +129,18 @@ target("test_parser_demo")
 
     -- Source files
     add_files("examples/test_parser_demo.cpp")
+
+    -- Link with core library
+    add_links("rangelua_core")
+
+-- Enhanced logging demo target
+target("enhanced_logging_demo")
+    set_kind("binary")
+    add_deps("rangelua_core")
+    add_packages("spdlog")
+
+    -- Source files
+    add_files("examples/debug/enhanced_logging_demo.cpp")
 
     -- Link with core library
     add_links("rangelua_core")

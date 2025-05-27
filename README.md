@@ -246,22 +246,75 @@ xmake run rangelua_benchmark --benchmark_filter="BM_ValueCreation"
 xmake run rangelua_benchmark --benchmark_format=json > benchmark_results.json
 ```
 
-## 🐛 Debugging
+## 🐛 Debugging and Logging
 
-RangeLua provides extensive debugging capabilities:
+RangeLua provides an advanced, developer-friendly logging system with module-specific control:
+
+### Enhanced Logging Features
+
+- **Module-specific log levels**: Control logging for individual components (lexer, parser, codegen, optimizer, vm, memory, gc)
+- **Command-line integration**: Easy configuration through command-line arguments
+- **Catch2 test integration**: Debug-friendly testing with logging control
+- **Multiple output formats**: Console and file output with customizable patterns
+
+### Main Executable Logging
 
 ```bash
-# Run with debug logging
-xmake run rangelua --log-level=debug script.lua
+# Global log level control
+xmake run rangelua --log-level debug script.lua
+xmake run rangelua --log-level trace --interactive
 
-# Enable specific module logging
-xmake run rangelua --log-level=trace script.lua
+# Module-specific logging
+xmake run rangelua --module-log parser:debug --module-log lexer:trace script.lua
+xmake run rangelua --module-log vm:info --module-log gc:warn script.lua
 
-# Write logs to file
-xmake run rangelua --log-file=rangelua.log script.lua
+# File output
+xmake run rangelua --log-file rangelua.log --log-level debug script.lua
 
-# Interactive mode with debugging
-xmake run rangelua --debug --interactive
+# Combined usage
+xmake run rangelua --log-level warn --module-log parser:trace --log-file debug.log script.lua
+```
+
+### Test Logging
+
+```bash
+# Global test logging
+xmake run rangelua_test --test-log-level debug
+xmake run rangelua_test --test-log-level info --test-log-file test.log
+
+# Module-specific test logging
+xmake run rangelua_test "[parser]" --test-module-log parser:trace
+xmake run rangelua_test "[lexer]" --test-module-log lexer:debug --test-module-log parser:info
+
+# Combined with Catch2 filters
+xmake run rangelua_test "[integration]" --test-log-level off --test-module-log vm:debug
+```
+
+### Available Log Levels
+
+- `trace`: Most verbose, shows all internal operations
+- `debug`: Detailed debugging information
+- `info`: General information messages
+- `warn`: Warning messages for potential issues
+- `error`: Error messages for failures
+- `critical`: Critical errors that may cause termination
+- `off`: Disable logging completely
+
+### Available Modules
+
+- `lexer`: Tokenization and lexical analysis
+- `parser`: Syntax analysis and AST construction
+- `codegen`: Code generation and bytecode emission
+- `optimizer`: Bytecode optimization passes
+- `vm`: Virtual machine execution
+- `memory`: Memory management and allocation
+- `gc`: Garbage collection operations
+
+### Logging Demo
+
+```bash
+# Run the enhanced logging demonstration
+xmake run enhanced_logging_demo
 ```
 
 ## 🎯 Design Goals Achieved

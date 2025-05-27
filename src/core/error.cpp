@@ -172,15 +172,11 @@ namespace rangelua {
     }
 
     void log_error(const Exception& ex) {
-        if (auto logger = utils::loggers::memory()) {
-            logger->error("Exception occurred: {}", ex.detailed_message());
-        }
+        MEMORY_LOG_ERROR("Exception occurred: {}", ex.detailed_message());
     }
 
     void log_error(ErrorCode code, StringView message) {
-        if (auto logger = utils::loggers::memory()) {
-            logger->error("Error [{}]: {}", ::rangelua::error_code_to_string(code), message);
-        }
+        MEMORY_LOG_ERROR("Error [{}]: {}", ::rangelua::error_code_to_string(code), message);
     }
 
     String format_error_message(ErrorCode code, StringView context) {
