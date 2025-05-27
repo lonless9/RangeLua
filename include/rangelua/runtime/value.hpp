@@ -174,7 +174,7 @@ namespace rangelua::runtime {
         Value operator^(const Value& other) const;  // Exponentiation
         Value operator-() const;
 
-        // Bitwise operators (missing)
+        // Bitwise operators
         Value operator&(const Value& other) const;
         Value operator|(const Value& other) const;
         Value operator~() const;

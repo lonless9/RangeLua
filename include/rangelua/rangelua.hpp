@@ -52,6 +52,11 @@
 
 namespace rangelua {
 
+    // Forward declarations
+    namespace runtime {
+        class MemoryManager;
+    }
+
     /**
      * @brief RangeLua version information
      */
@@ -64,15 +69,27 @@ namespace rangelua {
     };
 
     /**
-     * @brief Initialize RangeLua library
-     * @return true if initialization successful, false otherwise
+     * @brief Initialize RangeLua library with modern error handling
+     * @return Status indicating success or failure
      */
-    bool initialize() noexcept;
+    Status initialize() noexcept;
 
     /**
      * @brief Cleanup RangeLua library
      */
     void cleanup() noexcept;
+
+    /**
+     * @brief Check if RangeLua is initialized
+     * @return true if initialized, false otherwise
+     */
+    bool is_initialized() noexcept;
+
+    /**
+     * @brief Get the global memory manager instance
+     * @return Pointer to memory manager or nullptr if not initialized
+     */
+    runtime::MemoryManager* get_memory_manager() noexcept;
 
     /**
      * @brief Get RangeLua version string

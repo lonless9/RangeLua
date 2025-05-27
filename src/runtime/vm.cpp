@@ -18,7 +18,7 @@ namespace rangelua::runtime {
         call_stack_.reserve(config_.call_stack_size);
     }
 
-    VirtualMachine::VirtualMachine(MemoryManager& memory_manager, VMConfig config)
+    VirtualMachine::VirtualMachine(RuntimeMemoryManager& memory_manager, VMConfig config)
         : config_(std::move(config)), memory_manager_(&memory_manager) {
         stack_.reserve(config_.stack_size);
         call_stack_.reserve(config_.call_stack_size);

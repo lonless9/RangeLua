@@ -13,6 +13,7 @@
  * - Coroutine: Lua coroutines/threads
  */
 
+#include "rangelua/runtime/value.hpp"
 #include <functional>
 #include <unordered_map>
 #include <vector>

@@ -58,7 +58,7 @@ namespace rangelua::runtime {
     class VirtualMachine {
     public:
         explicit VirtualMachine(VMConfig config = {});
-        explicit VirtualMachine(MemoryManager& memory_manager, VMConfig config = {});
+        explicit VirtualMachine(RuntimeMemoryManager& memory_manager, VMConfig config = {});
 
         ~VirtualMachine() = default;
 
@@ -190,7 +190,7 @@ namespace rangelua::runtime {
         /**
          * @brief Get memory manager
          */
-        MemoryManager& memory_manager() noexcept { return *memory_manager_; }
+        RuntimeMemoryManager& memory_manager() noexcept { return *memory_manager_; }
 
         /**
          * @brief Get VM configuration
@@ -202,8 +202,8 @@ namespace rangelua::runtime {
         VMState state_ = VMState::Ready;
 
         // Memory management
-        std::unique_ptr<MemoryManager> owned_memory_manager_;
-        MemoryManager* memory_manager_;
+        std::unique_ptr<RuntimeMemoryManager> owned_memory_manager_;
+        RuntimeMemoryManager* memory_manager_;
 
         // Execution state
         std::vector<Value> stack_;

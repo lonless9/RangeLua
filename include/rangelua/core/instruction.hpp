@@ -139,7 +139,7 @@ namespace rangelua {
     };
 
     /**
-     * @brief Lua 5.5 compatible instruction format
+     * @brief Enhanced Lua 5.5 compatible instruction format with C++20 features
      */
     struct LuaInstruction {
         // Lua 5.5 instruction format constants
@@ -163,6 +163,9 @@ namespace rangelua {
 
         explicit constexpr LuaInstruction(std::uint32_t instruction = 0) noexcept
             : raw(instruction) {}
+
+        // Modern C++20 comparison operators
+        constexpr auto operator<=>(const LuaInstruction&) const noexcept = default;
 
         // Field extraction methods
         [[nodiscard]] constexpr OpCode opcode() const noexcept {
@@ -225,6 +228,114 @@ namespace rangelua {
             return LuaInstruction(static_cast<std::uint32_t>(op) |
                                   ((ax & ((1U << AX_BITS) - 1U)) << OPCODE_BITS));
         }
+
+        // Modern C++20 utility methods
+        [[nodiscard]] constexpr bool is_valid() const noexcept {
+            const auto op = opcode();
+            return static_cast<std::uint8_t>(op) < static_cast<std::uint8_t>(OpCode::NUM_OPCODES);
+        }
+
+        [[nodiscard]] constexpr bool uses_register_a() const noexcept {
+            // Most instructions use register A
+            return true;
+        }
+
+        [[nodiscard]] constexpr bool uses_register_b() const noexcept {
+            const auto op = opcode();
+            // Instructions that don't use B register
+            return op != OpCode::OP_LOADNIL && op != OpCode::OP_LOADFALSE &&
+                   op != OpCode::OP_LOADTRUE && op != OpCode::OP_RETURN0;
+        }
+
+        [[nodiscard]] constexpr bool uses_register_c() const noexcept {
+            const auto op = opcode();
+            // Only ABC format instructions use C register
+            return op == OpCode::OP_ADD || op == OpCode::OP_SUB || op == OpCode::OP_MUL ||
+                   op == OpCode::OP_DIV || op == OpCode::OP_MOD || op == OpCode::OP_POW ||
+                   op == OpCode::OP_BAND || op == OpCode::OP_BOR || op == OpCode::OP_BXOR ||
+                   op == OpCode::OP_SHL || op == OpCode::OP_SHR || op == OpCode::OP_GETTABLE ||
+                   op == OpCode::OP_SETTABLE || op == OpCode::OP_NEWTABLE;
+        }
+
+        [[nodiscard]] constexpr bool is_jump_instruction() const noexcept {
+            const auto op = opcode();
+            return op == OpCode::OP_JMP || op == OpCode::OP_FORLOOP || op == OpCode::OP_FORPREP ||
+                   op == OpCode::OP_TFORLOOP || op == OpCode::OP_EQ || op == OpCode::OP_LT ||
+                   op == OpCode::OP_LE || op == OpCode::OP_TEST || op == OpCode::OP_TESTSET;
+        }
+
+        [[nodiscard]] constexpr bool modifies_register_a() const noexcept {
+            const auto op = opcode();
+            // Instructions that don't modify register A
+            return op != OpCode::OP_SETUPVAL && op != OpCode::OP_SETTABUP &&
+                   op != OpCode::OP_SETTABLE && op != OpCode::OP_SETI &&
+                   op != OpCode::OP_SETFIELD && op != OpCode::OP_JMP;
+        }
     };
+
+    // Modern C++20 instruction utility functions
+    namespace instruction_utils {
+
+        /**
+         * @brief Get instruction format as string for debugging
+         */
+        [[nodiscard]] constexpr StringView get_instruction_format(OpCode op) noexcept {
+            switch (op) {
+                case OpCode::OP_LOADK:
+                case OpCode::OP_LOADKX:
+                case OpCode::OP_FORLOOP:
+                case OpCode::OP_FORPREP:
+                case OpCode::OP_TFORPREP:
+                case OpCode::OP_CLOSURE:
+                    return "ABx";
+
+                case OpCode::OP_LOADI:
+                case OpCode::OP_LOADF:
+                case OpCode::OP_JMP:
+                    return "AsBx";
+
+                case OpCode::OP_EXTRAARG:
+                    return "Ax";
+
+                default:
+                    return "ABC";
+            }
+        }
+
+        /**
+         * @brief Check if instruction is safe (doesn't cause side effects)
+         */
+        [[nodiscard]] constexpr bool is_safe_instruction(OpCode op) noexcept {
+            switch (op) {
+                case OpCode::OP_MOVE:
+                case OpCode::OP_LOADI:
+                case OpCode::OP_LOADF:
+                case OpCode::OP_LOADK:
+                case OpCode::OP_LOADKX:
+                case OpCode::OP_LOADFALSE:
+                case OpCode::OP_LOADTRUE:
+                case OpCode::OP_LOADNIL:
+                case OpCode::OP_UNM:
+                case OpCode::OP_NOT:
+                case OpCode::OP_LEN:
+                case OpCode::OP_BNOT:
+                case OpCode::OP_ADD:
+                case OpCode::OP_SUB:
+                case OpCode::OP_MUL:
+                case OpCode::OP_DIV:
+                case OpCode::OP_MOD:
+                case OpCode::OP_POW:
+                case OpCode::OP_BAND:
+                case OpCode::OP_BOR:
+                case OpCode::OP_BXOR:
+                case OpCode::OP_SHL:
+                case OpCode::OP_SHR:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+    }  // namespace instruction_utils
 
 }  // namespace rangelua

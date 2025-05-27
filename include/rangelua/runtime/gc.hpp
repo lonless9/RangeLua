@@ -273,6 +273,15 @@ namespace rangelua::runtime {
         void sweep_phase() override;
         void add_root(void* ptr) override;
         void remove_root(void* ptr) override;
+        void add_root(GCObject* obj) override;
+        void remove_root(GCObject* obj) override;
+        void setMemoryManager(RuntimeMemoryManager* manager) noexcept override;
+        void requestCollection() noexcept override;
+        void emergencyCollection() override;
+        void setCollectionThreshold(Size threshold) noexcept override;
+        [[nodiscard]] bool isCollecting() const noexcept override;
+        [[nodiscard]] Size objectCount() const noexcept override;
+        [[nodiscard]] Size memoryUsage() const noexcept override;
 
         // Advanced features
         void setStrategy(GCStrategy strategy) noexcept;
