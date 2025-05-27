@@ -14,14 +14,15 @@ namespace rangelua::runtime {
         // Helper for object creation with proper GC registration
         void registerWithGC(GCObject* obj) {
             if (obj) {
-                try {
-                    // Register with the global garbage collector
-                    auto& gc = getGarbageCollector();
-                    gc.add_root(obj);
+                // Register with the thread-local garbage collector
+                auto gc_result = getGarbageCollector();
+                if (is_success(gc_result)) {
+                    auto* gc = get_value(gc_result);
+                    gc->add_root(obj);
                     GC_LOG_DEBUG("GC object created and registered: {} (type: {})",
                                  static_cast<void*>(obj),
                                  static_cast<int>(obj->type()));
-                } catch (const std::exception& e) {
+                } else {
                     // If no GC is available, just log the creation
                     GC_LOG_DEBUG("GC object created (no GC available): {} (type: {})",
                                  static_cast<void*>(obj),

@@ -4,6 +4,7 @@
  * @version 0.1.0
  */
 
+#include <rangelua/runtime/gc.hpp>
 #include <rangelua/runtime/memory.hpp>
 
 #include <algorithm>
@@ -233,43 +234,25 @@ namespace rangelua::runtime {
         }
     }
 
-    // Global runtime memory management
-    static RuntimeMemoryManager* g_memory_manager = nullptr;
-    static GarbageCollector* g_garbage_collector = nullptr;
-
-    RuntimeMemoryManager& getMemoryManager() {
-        if (!g_memory_manager) {
-            // Create default memory manager
-            static auto default_manager = MemoryManagerFactory::create_runtime_manager();
-            g_memory_manager = default_manager.get();
+    // Thread-safe runtime memory management without global state
+    Result<RuntimeMemoryManager*> getMemoryManager() {
+        thread_local auto default_manager = MemoryManagerFactory::create_runtime_manager();
+        if (!default_manager) {
+            return ErrorCode::MEMORY_ERROR;
         }
-        return *g_memory_manager;
+        return default_manager.get();
     }
 
-    void setMemoryManager(RuntimeMemoryManager* manager) {
-        g_memory_manager = manager;
-    }
-
-    GarbageCollector& getGarbageCollector() {
-        if (!g_garbage_collector) {
-            throw std::runtime_error("No garbage collector has been set");
+    Result<GarbageCollector*> getGarbageCollector() {
+        thread_local auto default_gc = std::make_unique<DefaultGarbageCollector>();
+        if (!default_gc) {
+            return ErrorCode::MEMORY_ERROR;
         }
-        return *g_garbage_collector;
+        return default_gc.get();
     }
 
-    void setGarbageCollector(GarbageCollector* gc) {
-        g_garbage_collector = gc;
-    }
-
-    // MemoryManagerScope implementation
-    MemoryManagerScope::MemoryManagerScope(RuntimeMemoryManager* manager)
-        : previousManager_(&getMemoryManager()) {
-        setMemoryManager(manager);
-    }
-
-    MemoryManagerScope::~MemoryManagerScope() {
-        setMemoryManager(previousManager_);
-    }
+    // Note: MemoryManagerScope removed as it relied on global state
+    // Use dependency injection instead for memory manager management
 
     // Explicit template instantiations for common sizes
     template class PoolAllocator<32, 1024>;    // Small objects

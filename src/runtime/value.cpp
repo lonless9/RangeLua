@@ -9,6 +9,9 @@
 #include <rangelua/runtime/objects.hpp>
 // clang-format on
 
+#include <rangelua/core/error.hpp>
+#include <rangelua/utils/debug.hpp>
+
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -203,7 +206,7 @@ namespace rangelua::runtime {
             data_);
     }
 
-    // Arithmetic operations with Lua 5.5 semantics
+    // Arithmetic operations with Lua 5.5 semantics and enhanced error handling
     Value Value::operator+(const Value& other) const {
         auto a_num = coerce_to_number(*this);
         auto b_num = coerce_to_number(other);
@@ -212,8 +215,14 @@ namespace rangelua::runtime {
             return Value(std::get<Number>(a_num) + std::get<Number>(b_num));
         }
 
-        // In Lua, invalid arithmetic operations result in runtime errors
-        // For now, return nil (should be handled by VM)
+        // Enhanced error handling for invalid arithmetic operations
+        RANGELUA_DEBUG_PRINT("Arithmetic error: Cannot add " +
+                             std::to_string(static_cast<int>(type())) + " and " +
+                             std::to_string(static_cast<int>(other.type())));
+
+        // Log the error for debugging
+        log_error(ErrorCode::TYPE_ERROR, "Invalid arithmetic operation: addition");
+
         return Value{};
     }
 
@@ -423,7 +432,7 @@ namespace rangelua::runtime {
                 return Value(static_cast<Number>(std::get<String>(data_).length()));
             case ValueType::Table:
                 // For tables, return the length of the array part
-                if (auto table_ptr = std::get<TablePtr>(data_)) {
+                if (const auto& table_ptr = std::get<TablePtr>(data_)) {
                     return Value(static_cast<Number>(table_ptr->arraySize()));
                 }
                 return Value(0.0);
@@ -434,7 +443,7 @@ namespace rangelua::runtime {
 
     Value Value::get(const Value& key) const {
         if (is_table()) {
-            auto table_ptr = std::get<TablePtr>(data_);
+            const auto& table_ptr = std::get<TablePtr>(data_);
             if (table_ptr) {
                 return table_ptr->get(key);
             }
@@ -444,7 +453,7 @@ namespace rangelua::runtime {
 
     void Value::set(const Value& key, const Value& value) {
         if (is_table()) {
-            auto table_ptr = std::get<TablePtr>(data_);
+            const auto& table_ptr = std::get<TablePtr>(data_);
             if (table_ptr) {
                 table_ptr->set(key, value);
             }
@@ -456,7 +465,7 @@ namespace rangelua::runtime {
 
         Value table() {
             auto table_ptr = makeGCObject<Table>();
-            return Value(table_ptr);
+            return Value(std::move(table_ptr));
         }
 
         Value table(std::initializer_list<std::pair<Value, Value>> init) {
@@ -465,23 +474,24 @@ namespace rangelua::runtime {
             for (const auto& [key, value] : init) {
                 table_ptr->set(key, value);
             }
-            return Value(table_ptr);
+            // Move the GCPtr into the Value to transfer ownership
+            return Value(std::move(table_ptr));
         }
 
         Value function(const std::function<std::vector<Value>(const std::vector<Value>&)>& fn) {
             auto function_ptr = makeGCObject<Function>(fn);
-            return Value(function_ptr);
+            return Value(std::move(function_ptr));
         }
 
         Value userdata(void* ptr, const String& type_name) {
             // For now, assume the size is unknown - this should be improved
             auto userdata_ptr = makeGCObject<Userdata>(ptr, 0, type_name);
-            return Value(userdata_ptr);
+            return Value(std::move(userdata_ptr));
         }
 
         Value thread() {
             auto coroutine_ptr = makeGCObject<Coroutine>();
-            return Value(coroutine_ptr);
+            return Value(std::move(coroutine_ptr));
         }
 
     }  // namespace value_factory
@@ -493,7 +503,7 @@ namespace rangelua::runtime {
             return ErrorCode::TYPE_ERROR;
         }
 
-        auto function_ptr = std::get<FunctionPtr>(data_);
+        const auto& function_ptr = std::get<FunctionPtr>(data_);
         if (!function_ptr) {
             return ErrorCode::RUNTIME_ERROR;
         }

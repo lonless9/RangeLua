@@ -4,7 +4,9 @@
  * @version 0.1.0
  */
 
+#include <rangelua/core/error.hpp>
 #include <rangelua/runtime/vm.hpp>
+#include <rangelua/utils/debug.hpp>
 #include <rangelua/utils/logger.hpp>
 
 #include <cstdint>
@@ -294,11 +296,33 @@ namespace rangelua::runtime {
     void VirtualMachine::set_error(ErrorCode code) {
         last_error_ = code;
         state_ = VMState::Error;
+
+        // Log error with enhanced debugging information
+        log_error(code, "VM execution error");
+
+        // Dump stack trace in debug mode
+        if constexpr (config::DEBUG_ENABLED) {
+            utils::Debug::dump_stack_trace();
+        }
     }
 
     void VirtualMachine::set_runtime_error(const String& message) {
         VM_LOG_ERROR("Runtime error: {}", message);
+
+        // Create detailed runtime error with source location
+        RuntimeError error(message);
+        log_error(error);
+
         set_error(ErrorCode::RUNTIME_ERROR);
+
+        // Additional debug information
+        RANGELUA_DEBUG_PRINT("VM State: " + std::to_string(static_cast<int>(state_)));
+        RANGELUA_DEBUG_PRINT("Stack size: " + std::to_string(stack_.size()));
+        RANGELUA_DEBUG_PRINT("Call stack depth: " + std::to_string(call_stack_.size()));
+    }
+
+    void VirtualMachine::trigger_runtime_error(const String& message) {
+        set_runtime_error(message);
     }
 
     // Instruction implementations (stubs)

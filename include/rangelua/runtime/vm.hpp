@@ -133,6 +133,11 @@ namespace rangelua::runtime {
         bool has_error() const noexcept { return state_ == VMState::Error; }
 
         /**
+         * @brief Get last error code
+         */
+        ErrorCode last_error() const noexcept { return last_error_; }
+
+        /**
          * @brief Get stack size
          */
         Size stack_size() const noexcept { return stack_.size(); }
@@ -196,6 +201,11 @@ namespace rangelua::runtime {
          * @brief Get VM configuration
          */
         const VMConfig& config() const noexcept { return config_; }
+
+        /**
+         * @brief Trigger runtime error for testing
+         */
+        void trigger_runtime_error(const String& message);
 
     private:
         VMConfig config_;

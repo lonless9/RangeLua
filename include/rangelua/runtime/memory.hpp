@@ -492,26 +492,8 @@ namespace rangelua::runtime {
         void expandPool();
     };
 
-    /**
-     * @brief RAII memory manager selector
-     *
-     * Allows temporary switching of memory managers with
-     * automatic restoration.
-     */
-    class MemoryManagerScope {
-    public:
-        explicit MemoryManagerScope(RuntimeMemoryManager* manager);
-        ~MemoryManagerScope();
-
-        // Non-copyable, non-movable
-        MemoryManagerScope(const MemoryManagerScope&) = delete;
-        MemoryManagerScope& operator=(const MemoryManagerScope&) = delete;
-        MemoryManagerScope(MemoryManagerScope&&) = delete;
-        MemoryManagerScope& operator=(MemoryManagerScope&&) = delete;
-
-    private:
-        RuntimeMemoryManager* previousManager_;
-    };
+    // Note: MemoryManagerScope removed to eliminate global state dependency
+    // Use dependency injection pattern instead for memory manager management
 
     /**
      * @brief Factory for creating memory managers
@@ -553,18 +535,16 @@ namespace rangelua::runtime {
         }
     };
 
-    // Global access functions for runtime memory management
+    // Thread-safe access functions for runtime memory management (no global state)
     /**
-     * @brief Global runtime memory manager access
+     * @brief Thread-local runtime memory manager access
      */
-    RuntimeMemoryManager& getMemoryManager();
-    void setMemoryManager(RuntimeMemoryManager* manager);
+    Result<RuntimeMemoryManager*> getMemoryManager();
 
     /**
-     * @brief Global garbage collector access
+     * @brief Thread-local garbage collector access
      */
-    GarbageCollector& getGarbageCollector();
-    void setGarbageCollector(GarbageCollector* gc);
+    Result<GarbageCollector*> getGarbageCollector();
 
 }  // namespace rangelua::runtime
 

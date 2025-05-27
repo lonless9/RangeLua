@@ -9,35 +9,34 @@
 #include <rangelua/runtime/memory.hpp>
 #include <rangelua/utils/logger.hpp>
 
-using rangelua::runtime::GCObject;
-using rangelua::runtime::GCPtr;
-using rangelua::runtime::WeakGCPtr;
-using rangelua::runtime::GCRoot;
-using rangelua::runtime::AdvancedGarbageCollector;
-using rangelua::runtime::DefaultGarbageCollector;
-using rangelua::runtime::GCStrategy;
-using rangelua::runtime::makeGCObject;
-using rangelua::runtime::setGarbageCollector;
-using rangelua::runtime::getGarbageCollector;
 using rangelua::LuaType;
 using rangelua::Size;
+using rangelua::runtime::AdvancedGarbageCollector;
+using rangelua::runtime::DefaultGarbageCollector;
+using rangelua::runtime::GCObject;
+using rangelua::runtime::GCPtr;
+using rangelua::runtime::GCRoot;
+using rangelua::runtime::GCStrategy;
+using rangelua::runtime::getGarbageCollector;
+using rangelua::runtime::makeGCObject;
+using rangelua::runtime::WeakGCPtr;
 
-// Test fixture for GC tests
+// Test fixture for GC tests (simplified since we use thread-local GC now)
 class GCTestFixture {
 public:
     GCTestFixture() {
-        // Set up a default garbage collector for tests
-        gc_ = std::make_unique<DefaultGarbageCollector>();
-        setGarbageCollector(gc_.get());
+        // Thread-local GC is automatically available
+        auto gc_result = getGarbageCollector();
+        REQUIRE(rangelua::is_success(gc_result));
     }
 
-    ~GCTestFixture() {
-        // Clean up
-        setGarbageCollector(nullptr);
-    }
+    ~GCTestFixture() = default;
 
-private:
-    std::unique_ptr<DefaultGarbageCollector> gc_;
+    // Non-copyable, non-movable
+    GCTestFixture(const GCTestFixture&) = delete;
+    GCTestFixture& operator=(const GCTestFixture&) = delete;
+    GCTestFixture(GCTestFixture&&) = delete;
+    GCTestFixture& operator=(GCTestFixture&&) = delete;
 };
 
 // Test GC object implementation

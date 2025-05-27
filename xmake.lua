@@ -72,18 +72,6 @@ target("rangelua_test")
     add_files("tests/**.cpp")
     add_defines("CATCH_CONFIG_MAIN")
 
--- Test target for core refactor
-target("test_core_refactor")
-    set_kind("binary")
-    add_deps("rangelua_core")
-    add_packages("spdlog")
-
-    -- Source files
-    add_files("examples/test_core_refactor.cpp")
-
-    -- Link with core library
-    add_links("rangelua_core")
-
 -- Error and Debug demo target
 target("error_debug_demo")
     set_kind("binary")

@@ -20,12 +20,11 @@ namespace rangelua::runtime {
         // For now, we'll delete immediately to prevent memory leaks
         GC_LOG_DEBUG("GCObject scheduled for deletion: type={}", static_cast<int>(type()));
 
-        // Try to remove from global GC if available
-        try {
-            auto& gc = getGarbageCollector();
-            gc.remove_root(this);
-        } catch (...) {
-            // No GC available, that's okay
+        // Try to remove from thread-local GC if available
+        auto gc_result = getGarbageCollector();
+        if (is_success(gc_result)) {
+            auto* gc = get_value(gc_result);
+            gc->remove_root(this);
         }
 
         delete this;
