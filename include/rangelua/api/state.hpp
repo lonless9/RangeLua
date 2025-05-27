@@ -2,7 +2,7 @@
 
 /**
  * @file state.hpp
- * @brief Lua state management API
+ * @brief Enhanced Lua state management API with comprehensive features
  * @version 0.1.0
  */
 
@@ -13,11 +13,23 @@
 namespace rangelua::api {
 
     /**
-     * @brief Main Lua state class
+     * @brief Configuration for State initialization
+     */
+    struct StateConfig {
+        runtime::VMConfig vm_config{};
+        bool enable_debug = false;
+        bool enable_profiling = false;
+        Size initial_stack_size = 1024;
+        Size max_stack_size = 65536;
+    };
+
+    /**
+     * @brief Enhanced Lua state class with comprehensive API support
      */
     class State {
     public:
         explicit State();
+        explicit State(const StateConfig& config);
         ~State() = default;
 
         // Non-copyable, movable
@@ -56,8 +68,64 @@ namespace rangelua::api {
          */
         const runtime::Value& top() const;
 
+        /**
+         * @brief Get value at stack index
+         */
+        const runtime::Value& get(Size index) const;
+
+        /**
+         * @brief Set value at stack index
+         */
+        void set(Size index, runtime::Value value);
+
+        /**
+         * @brief Get global variable
+         */
+        runtime::Value get_global(const String& name) const;
+
+        /**
+         * @brief Set global variable
+         */
+        void set_global(const String& name, runtime::Value value);
+
+        /**
+         * @brief Check if global variable exists
+         */
+        bool has_global(const String& name) const;
+
+        /**
+         * @brief Clear all global variables
+         */
+        void clear_globals();
+
+        /**
+         * @brief Get VM state
+         */
+        runtime::VMState vm_state() const noexcept;
+
+        /**
+         * @brief Reset state to initial condition
+         */
+        void reset();
+
+        /**
+         * @brief Get configuration
+         */
+        const StateConfig& config() const noexcept { return config_; }
+
     private:
         runtime::VirtualMachine vm_;
+        StateConfig config_;
+
+        /**
+         * @brief Initialize global environment
+         */
+        void initialize_globals();
+
+        /**
+         * @brief Setup standard library functions
+         */
+        void setup_standard_library();
     };
 
 }  // namespace rangelua::api
