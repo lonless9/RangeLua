@@ -327,6 +327,12 @@ namespace rangelua::backend {
          */
         ScopeManager& scope_manager() noexcept;
 
+        /**
+         * @brief Get bytecode emitter
+         * @return Bytecode emitter reference
+         */
+        BytecodeEmitter& emitter() noexcept;
+
     private:
         BytecodeEmitter& emitter_;
         RegisterAllocator register_allocator_;
