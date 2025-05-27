@@ -56,6 +56,9 @@ namespace rangelua::runtime {
      * @brief Virtual machine for executing Lua bytecode
      */
     class VirtualMachine {
+        friend class ExecutionContext;
+        friend class VMDebugger;
+
     public:
         explicit VirtualMachine(VMConfig config = {});
         explicit VirtualMachine(RuntimeMemoryManager& memory_manager, VMConfig config = {});
@@ -140,7 +143,7 @@ namespace rangelua::runtime {
         /**
          * @brief Get stack size
          */
-        Size stack_size() const noexcept { return stack_.size(); }
+        Size stack_size() const noexcept { return stack_top_; }
 
         /**
          * @brief Get call stack depth

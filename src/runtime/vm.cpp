@@ -14,14 +14,23 @@
 namespace rangelua::runtime {
 
     // VirtualMachine implementation
-    VirtualMachine::VirtualMachine(VMConfig config)
-        : config_(std::move(config)), memory_manager_(nullptr) {
+    VirtualMachine::VirtualMachine(VMConfig config) : config_(config) {
+        // Create default memory manager if none provided
+        auto memory_result = getMemoryManager();
+        if (is_success(memory_result)) {
+            memory_manager_ = get_value(memory_result);
+        } else {
+            // Use factory to create concrete implementation
+            owned_memory_manager_ = MemoryManagerFactory::create_runtime_manager();
+            memory_manager_ = owned_memory_manager_.get();
+        }
+
         stack_.reserve(config_.stack_size);
         call_stack_.reserve(config_.call_stack_size);
     }
 
     VirtualMachine::VirtualMachine(RuntimeMemoryManager& memory_manager, VMConfig config)
-        : config_(std::move(config)), memory_manager_(&memory_manager) {
+        : config_(config), memory_manager_(&memory_manager) {
         stack_.reserve(config_.stack_size);
         call_stack_.reserve(config_.call_stack_size);
     }
@@ -92,8 +101,27 @@ namespace rangelua::runtime {
 
     Result<std::vector<Value>> VirtualMachine::call(const Value& function,
                                                     const std::vector<Value>& args) {
-        // TODO: Implement function call
-        return ErrorCode::RUNTIME_ERROR;
+        try {
+            if (!function.is_function()) {
+                VM_LOG_ERROR("Attempt to call a {} value", function.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            // Use the Value's call method which handles different function types
+            auto call_result = function.call(args);
+            if (is_error(call_result)) {
+                VM_LOG_ERROR("Function call failed");
+                return get_error(call_result);
+            }
+
+            return get_value(call_result);
+        } catch (const Exception& e) {
+            VM_LOG_ERROR("Exception in function call: {}", e.what());
+            return e.code();
+        } catch (...) {
+            VM_LOG_ERROR("Unknown error in function call");
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
     Result<std::vector<Value>> VirtualMachine::resume() {
@@ -140,6 +168,12 @@ namespace rangelua::runtime {
     }
 
     void VirtualMachine::push(Value value) {
+        // Check for stack overflow before pushing
+        if (stack_top_ >= config_.stack_size) {
+            set_error(ErrorCode::STACK_OVERFLOW);
+            return;
+        }
+
         ensure_stack_size(stack_top_ + 1);
         if (stack_top_ < stack_.size()) {
             stack_[stack_top_] = std::move(value);
@@ -245,6 +279,21 @@ namespace rangelua::runtime {
                 return op_return(a, b);
             }
 
+            case OpCode::OP_NEWTABLE:
+                return op_newtable(a);
+
+            case OpCode::OP_GETTABLE: {
+                Register b = InstructionEncoder::decode_b(instruction);
+                Register c = InstructionEncoder::decode_c(instruction);
+                return op_gettable(a, b, c);
+            }
+
+            case OpCode::OP_SETTABLE: {
+                Register b = InstructionEncoder::decode_b(instruction);
+                Register c = InstructionEncoder::decode_c(instruction);
+                return op_settable(a, b, c);
+            }
+
             default:
                 VM_LOG_ERROR("Unimplemented opcode: {}", static_cast<int>(opcode));
                 return ErrorCode::RUNTIME_ERROR;
@@ -287,8 +336,24 @@ namespace rangelua::runtime {
             return ErrorCode::STACK_OVERFLOW;
         }
 
-        CallFrame frame(&function, stack_top_, function.parameter_count);
+        // Ensure we have enough stack space for the function
+        Size required_stack = stack_top_ + function.stack_size;
+        ensure_stack_size(required_stack);
+
+        // Create call frame with proper stack base
+        CallFrame frame(&function, stack_top_ - arg_count, function.parameter_count);
         call_stack_.push_back(frame);
+
+        // Initialize local variables beyond parameters to nil
+        for (Size i = arg_count; i < function.parameter_count; ++i) {
+            stack_at(i) = Value{};
+        }
+
+        VM_LOG_DEBUG("Setup call frame: function={}, args={}, params={}, stack_base={}",
+                     function.name,
+                     arg_count,
+                     function.parameter_count,
+                     frame.stack_base);
 
         return std::monostate{};
     }
@@ -342,9 +407,38 @@ namespace rangelua::runtime {
     }
 
     Status VirtualMachine::op_loadk(Register a, std::uint16_t bx) {
-        // TODO: Load constant from constant pool
-        stack_at(a) = Value{};
-        return std::monostate{};
+        if (!call_stack_.empty() && call_stack_.back().function) {
+            const auto& constants = call_stack_.back().function->constants;
+            if (bx < constants.size()) {
+                const auto& constant = constants[bx];
+
+                // Convert ConstantValue to Value
+                Value value = std::visit(
+                    [](const auto& val) -> Value {
+                        using T = std::decay_t<decltype(val)>;
+                        if constexpr (std::is_same_v<T, std::monostate>) {
+                            return Value{};
+                        } else if constexpr (std::is_same_v<T, bool>) {
+                            return Value(val);
+                        } else if constexpr (std::is_same_v<T, Number>) {
+                            return Value(val);
+                        } else if constexpr (std::is_same_v<T, Int>) {
+                            return Value(val);
+                        } else if constexpr (std::is_same_v<T, String>) {
+                            return Value(val);
+                        } else {
+                            return Value{};
+                        }
+                    },
+                    constant);
+
+                stack_at(a) = std::move(value);
+                return std::monostate{};
+            }
+        }
+
+        VM_LOG_ERROR("Invalid constant index: {}", bx);
+        return ErrorCode::RUNTIME_ERROR;
     }
 
     Status VirtualMachine::op_loadnil(Register a, Register b) {
@@ -365,9 +459,30 @@ namespace rangelua::runtime {
     }
 
     Status VirtualMachine::op_add(Register a, Register b, Register c) {
-        // TODO: Implement addition with proper type checking
-        stack_at(a) = stack_at(b) + stack_at(c);
-        return std::monostate{};
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+
+            // Use Value's operator+ which handles Lua semantics
+            Value result = left + right;
+
+            // Check if the operation resulted in nil (error case)
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot add {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            VM_LOG_ERROR("Arithmetic error in ADD: {}", e.what());
+            return e.code();
+        } catch (...) {
+            VM_LOG_ERROR("Unknown error in ADD operation");
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
     Status VirtualMachine::op_jmp(std::int16_t sbx) {
@@ -378,97 +493,788 @@ namespace rangelua::runtime {
     }
 
     Status VirtualMachine::op_return(Register a, Register b) {
-        // TODO: Implement return with proper value handling
-        if (!call_stack_.empty()) {
-            call_stack_.pop_back();
+        if (call_stack_.empty()) {
+            VM_LOG_ERROR("RETURN instruction with empty call stack");
+            return ErrorCode::RUNTIME_ERROR;
         }
+
+        auto& frame = call_stack_.back();
+        Size return_count = (b == 0) ? (stack_top_ - frame.stack_base - a) : (b - 1);
+
+        // Copy return values to the correct position
+        if (return_count > 0) {
+            // Move return values to start of current frame
+            for (Size i = 0; i < return_count; ++i) {
+                if (frame.stack_base + i < stack_.size() &&
+                    frame.stack_base + a + i < stack_.size()) {
+                    stack_[frame.stack_base + i] = std::move(stack_[frame.stack_base + a + i]);
+                }
+            }
+        }
+
+        // Restore stack top to the beginning of this frame plus return values
+        stack_top_ = frame.stack_base + return_count;
+
+        // Pop the call frame
+        call_stack_.pop_back();
+
+        VM_LOG_DEBUG("RETURN: {} values returned", return_count);
         return std::monostate{};
     }
 
-    // Stub implementations for missing instruction operations
-    Status VirtualMachine::op_sub(Register /* a */, Register /* b */, Register /* c */) {
+    // Arithmetic operations implementation
+    Status VirtualMachine::op_sub(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left - right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot subtract {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_mul(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left * right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot multiply {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_div(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left / right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot divide {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_mod(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left % right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot modulo {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_pow(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left ^ right;  // Exponentiation
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot exponentiate {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_unm(Register a, Register b) {
+        try {
+            const Value& operand = stack_at(b);
+            Value result = -operand;  // Unary minus
+
+            if (result.is_nil() && !operand.is_nil()) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot negate {}", operand.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+    // Bitwise operations implementation
+    Status VirtualMachine::op_band(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left & right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot AND {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_bor(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left | right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot OR {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_bxor(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            // XOR using ^ operator (note: this is different from exponentiation context)
+            Value result = left | right;  // TODO: Implement proper XOR in Value class
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot XOR {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_shl(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left << right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot shift left {} by {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_shr(Register a, Register b, Register c) {
+        try {
+            const Value& left = stack_at(b);
+            const Value& right = stack_at(c);
+            Value result = left >> right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot shift right {} by {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_bnot(Register a, Register b) {
+        try {
+            const Value& operand = stack_at(b);
+            Value result = ~operand;  // Bitwise NOT
+
+            if (result.is_nil() && !operand.is_nil()) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot NOT {}", operand.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+    // Comparison operations implementation
+    Status VirtualMachine::op_eq(Register a, Register b, std::int16_t sbx) {
+        try {
+            const Value& left = stack_at(a);
+            const Value& right = stack_at(b);
+            bool result = (left == right);
+
+            // If sbx is non-zero, we want to jump if the comparison is false
+            if ((sbx != 0) == result) {
+                // Skip next instruction (which is typically a jump)
+                if (!call_stack_.empty()) {
+                    call_stack_.back().instruction_pointer++;
+                }
+            }
+
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_lt(Register a, Register b, std::int16_t sbx) {
+        try {
+            const Value& left = stack_at(a);
+            const Value& right = stack_at(b);
+            bool result = (left < right);
+
+            // If sbx is non-zero, we want to jump if the comparison is false
+            if ((sbx != 0) == result) {
+                // Skip next instruction (which is typically a jump)
+                if (!call_stack_.empty()) {
+                    call_stack_.back().instruction_pointer++;
+                }
+            }
+
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_le(Register a, Register b, std::int16_t sbx) {
+        try {
+            const Value& left = stack_at(a);
+            const Value& right = stack_at(b);
+            bool result = (left <= right);
+
+            // If sbx is non-zero, we want to jump if the comparison is false
+            if ((sbx != 0) == result) {
+                // Skip next instruction (which is typically a jump)
+                if (!call_stack_.empty()) {
+                    call_stack_.back().instruction_pointer++;
+                }
+            }
+
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_not(Register a, Register b) {
+        try {
+            const Value& operand = stack_at(b);
+            // Lua NOT: nil and false are falsy, everything else is truthy
+            bool result = operand.is_falsy();
+            stack_at(a) = Value(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_len(Register a, Register b) {
+        try {
+            const Value& operand = stack_at(b);
+            Value result = operand.length();
+
+            if (result.is_nil()) {
+                VM_LOG_ERROR("Invalid length operation on {}", operand.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+    // Table operations implementation
+    Status VirtualMachine::op_gettable(Register a, Register b, Register c) {
+        try {
+            const Value& table = stack_at(b);
+            const Value& key = stack_at(c);
+
+            if (!table.is_table()) {
+                VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            Value result = table.get(key);
+            stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_settable(Register a, Register b, Register c) {
+        try {
+            Value& table = stack_at(a);
+            const Value& key = stack_at(b);
+            const Value& value = stack_at(c);
+
+            if (!table.is_table()) {
+                VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            table.set(key, value);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_newtable(Register a) {
+        try {
+            // Create new table using value factory
+            Value table = value_factory::table();
+            stack_at(a) = std::move(table);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+    // Function call operations implementation
+    Status VirtualMachine::op_call(Register a, Register b, Register c) {
+        try {
+            const Value& function = stack_at(a);
+
+            if (!function.is_function()) {
+                VM_LOG_ERROR("Attempt to call a {} value", function.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            // Prepare arguments
+            std::vector<Value> args;
+            Size arg_count = (b == 0) ? (stack_top_ - a - 1) : (b - 1);
+
+            args.reserve(arg_count);
+            for (Size i = 0; i < arg_count; ++i) {
+                args.push_back(stack_at(a + 1 + i));
+            }
+
+            // Call the function using Value's call method
+            auto call_result = function.call(args);
+            if (is_error(call_result)) {
+                VM_LOG_ERROR("Function call failed");
+                return get_error(call_result);
+            }
+
+            auto results = get_value(call_result);
+            Size result_count = (c == 0) ? results.size() : (c - 1);
+
+            // Store results
+            for (Size i = 0; i < result_count && i < results.size(); ++i) {
+                stack_at(a + i) = std::move(results[i]);
+            }
+
+            // Fill remaining slots with nil if needed
+            for (Size i = results.size(); i < result_count; ++i) {
+                stack_at(a + i) = Value{};
+            }
+
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_tailcall(Register a, Register b) {
+        try {
+            const Value& function = stack_at(a);
+
+            if (!function.is_function()) {
+                VM_LOG_ERROR("Attempt to tail call a {} value", function.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            // Prepare arguments
+            std::vector<Value> args;
+            Size arg_count = (b == 0) ? (stack_top_ - a - 1) : (b - 1);
+
+            args.reserve(arg_count);
+            for (Size i = 0; i < arg_count; ++i) {
+                args.push_back(stack_at(a + 1 + i));
+            }
+
+            // For tail call, we replace the current frame
+            if (!call_stack_.empty()) {
+                auto& current_frame = call_stack_.back();
+                Size base = current_frame.stack_base;
+
+                // Call the function
+                auto call_result = function.call(args);
+                if (is_error(call_result)) {
+                    VM_LOG_ERROR("Tail call failed");
+                    return get_error(call_result);
+                }
+
+                auto results = get_value(call_result);
+
+                // Move results to the base of current frame
+                for (Size i = 0; i < results.size(); ++i) {
+                    stack_at(base + i) = std::move(results[i]);
+                }
+
+                // Adjust stack top
+                stack_top_ = base + results.size();
+
+                // Pop current frame (tail call optimization)
+                call_stack_.pop_back();
+            }
+
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+    // Control flow and test operations implementation
+    Status VirtualMachine::op_test(Register a, Register c) {
+        try {
+            const Value& value = stack_at(a);
+            bool is_truthy = value.is_truthy();
+
+            // If c is non-zero, we want to jump if the value is falsy
+            // If c is zero, we want to jump if the value is truthy
+            if ((c != 0) != is_truthy) {
+                // Skip next instruction (which is typically a jump)
+                if (!call_stack_.empty()) {
+                    call_stack_.back().instruction_pointer++;
+                }
+            }
+
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_testset(Register a, Register b, Register c) {
+        try {
+            const Value& value = stack_at(b);
+            bool is_truthy = value.is_truthy();
+
+            // If c is non-zero, we want to jump if the value is falsy
+            // If c is zero, we want to jump if the value is truthy
+            if ((c != 0) != is_truthy) {
+                // Skip next instruction and don't set the value
+                if (!call_stack_.empty()) {
+                    call_stack_.back().instruction_pointer++;
+                }
+            } else {
+                // Set the value
+                stack_at(a) = value;
+            }
+
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    // Upvalue operations (placeholder implementations)
+    Status VirtualMachine::op_getupval(Register a, UpvalueIndex b) {
+        try {
+            // TODO: Implement proper upvalue handling
+            // For now, just set to nil
+            stack_at(a) = Value{};
+            VM_LOG_DEBUG("GETUPVAL: R{} = upvalue[{}] (not implemented)", a, b);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_setupval(Register a, UpvalueIndex b) {
+        try {
+            // TODO: Implement proper upvalue handling
+            [[maybe_unused]] const Value& value = stack_at(a);
+            VM_LOG_DEBUG("SETUPVAL: upvalue[{}] = R{} (not implemented)", b, a);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    // Global variable operations
+    Status VirtualMachine::op_getglobal(Register a, std::uint16_t bx) {
+        try {
+            if (!call_stack_.empty() && call_stack_.back().function) {
+                const auto& constants = call_stack_.back().function->constants;
+                if (bx < constants.size()) {
+                    const auto& constant = constants[bx];
+
+                    // The constant should be a string (global name)
+                    if (std::holds_alternative<String>(constant)) {
+                        const String& name = std::get<String>(constant);
+                        Value value = get_global(name);
+                        stack_at(a) = std::move(value);
+                        return std::monostate{};
+                    }
+                }
+            }
+
+            VM_LOG_ERROR("Invalid global constant index: {}", bx);
+            return ErrorCode::RUNTIME_ERROR;
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    Status VirtualMachine::op_setglobal(Register a, std::uint16_t bx) {
+        try {
+            if (!call_stack_.empty() && call_stack_.back().function) {
+                const auto& constants = call_stack_.back().function->constants;
+                if (bx < constants.size()) {
+                    const auto& constant = constants[bx];
+
+                    // The constant should be a string (global name)
+                    if (std::holds_alternative<String>(constant)) {
+                        const String& name = std::get<String>(constant);
+                        const Value& value = stack_at(a);
+                        set_global(name, value);
+                        return std::monostate{};
+                    }
+                }
+            }
+
+            VM_LOG_ERROR("Invalid global constant index: {}", bx);
+            return ErrorCode::RUNTIME_ERROR;
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
+    }
+
+    // ExecutionContext implementation
+    ExecutionContext::ExecutionContext(VirtualMachine& vm)
+        : vm_(vm), saved_state_(VMState::Ready), saved_stack_top_(0), is_saved_(false) {}
+
+    void ExecutionContext::save_state() {
+        if (!is_saved_) {
+            saved_state_ = vm_.state_;
+            saved_stack_ = vm_.stack_;
+            saved_call_stack_ = vm_.call_stack_;
+            saved_stack_top_ = vm_.stack_top_;
+            is_saved_ = true;
+
+            VM_LOG_DEBUG("Execution context saved");
+        }
+    }
+
+    void ExecutionContext::restore_state() {
+        if (is_saved_) {
+            vm_.state_ = saved_state_;
+            vm_.stack_ = std::move(saved_stack_);
+            vm_.call_stack_ = std::move(saved_call_stack_);
+            vm_.stack_top_ = saved_stack_top_;
+            is_saved_ = false;
+
+            VM_LOG_DEBUG("Execution context restored");
+        }
+    }
+
+    bool ExecutionContext::is_valid() const noexcept {
+        return is_saved_;
+    }
+
+    // VMDebugger implementation
+    VMDebugger::VMDebugger(VirtualMachine& vm) : vm_(vm) {}
+
+    void VMDebugger::set_breakpoint(Size instruction) {
+        breakpoints_.insert(instruction);
+        VM_LOG_DEBUG("Breakpoint set at instruction {}", instruction);
+    }
+
+    void VMDebugger::remove_breakpoint(Size instruction) {
+        breakpoints_.erase(instruction);
+        VM_LOG_DEBUG("Breakpoint removed from instruction {}", instruction);
+    }
+
+    Status VMDebugger::step_instruction() {
+        is_debugging_ = true;
+        auto result = vm_.step();
+        is_debugging_ = false;
+        return result;
+    }
+
+    Status VMDebugger::step_over() {
+        // TODO: Implement step over (step without entering function calls)
+        return step_instruction();
+    }
+
+    Status VMDebugger::step_into() {
+        // TODO: Implement step into (step into function calls)
+        return step_instruction();
+    }
+
+    Status VMDebugger::continue_execution() {
+        is_debugging_ = true;
+
+        while (vm_.is_running()) {
+            Size current_ip = vm_.instruction_pointer();
+
+            // Check for breakpoints
+            if (breakpoints_.contains(current_ip)) {
+                VM_LOG_DEBUG("Breakpoint hit at instruction {}", current_ip);
+                break;
+            }
+
+            auto result = vm_.step();
+            if (is_error(result)) {
+                is_debugging_ = false;
+                return result;
+            }
+        }
+
+        is_debugging_ = false;
         return std::monostate{};
     }
-    Status VirtualMachine::op_mul(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
+
+    std::vector<String> VMDebugger::get_stack_trace() const {
+        std::vector<String> trace;
+
+        for (const auto& frame : vm_.call_stack_) {
+            if (frame.function) {
+                String frame_info = frame.function->name + " at instruction " +
+                                    std::to_string(frame.instruction_pointer);
+                trace.push_back(std::move(frame_info));
+            }
+        }
+
+        return trace;
     }
-    Status VirtualMachine::op_div(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_mod(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_pow(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_unm(Register /* a */, Register /* b */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_band(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_bor(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_bxor(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_shl(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_shr(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_bnot(Register /* a */, Register /* b */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_eq(Register /* a */, Register /* b */, std::int16_t /* sbx */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_lt(Register /* a */, Register /* b */, std::int16_t /* sbx */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_le(Register /* a */, Register /* b */, std::int16_t /* sbx */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_not(Register /* a */, Register /* b */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_len(Register /* a */, Register /* b */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_gettable(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_settable(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_newtable(Register /* a */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_call(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_tailcall(Register /* a */, Register /* b */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_test(Register /* a */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_testset(Register /* a */, Register /* b */, Register /* c */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_getupval(Register /* a */, UpvalueIndex /* b */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_setupval(Register /* a */, UpvalueIndex /* b */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_getglobal(Register /* a */, std::uint16_t /* bx */) {
-        return std::monostate{};
-    }
-    Status VirtualMachine::op_setglobal(Register /* a */, std::uint16_t /* bx */) {
-        return std::monostate{};
+
+    std::unordered_map<String, Value> VMDebugger::get_locals() const {
+        std::unordered_map<String, Value> locals;
+
+        if (!vm_.call_stack_.empty()) {
+            const auto& frame = vm_.call_stack_.back();
+            if (frame.function) {
+                // Get local variable names and values
+                for (Size i = 0; i < frame.function->locals.size() && i < frame.local_count; ++i) {
+                    const String& name = frame.function->locals[i];
+                    const Value& value = vm_.stack_at(i);
+                    locals[name] = value;
+                }
+            }
+        }
+
+        return locals;
     }
 
 }  // namespace rangelua::runtime

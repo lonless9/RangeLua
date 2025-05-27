@@ -510,7 +510,18 @@ namespace rangelua::runtime {
 
         // Convert arguments to vector
         std::vector<Value> arg_vector;
-        (arg_vector.emplace_back(Value(std::forward<Args>(args))), ...);
+        if constexpr (sizeof...(args) == 1) {
+            // Special case for single vector argument
+            using FirstArg = std::tuple_element_t<0, std::tuple<Args...>>;
+            if constexpr (std::is_same_v<std::decay_t<FirstArg>, std::vector<Value>>) {
+                auto&& first_arg = std::get<0>(std::forward_as_tuple(args...));
+                arg_vector = std::forward<decltype(first_arg)>(first_arg);
+            } else {
+                (arg_vector.emplace_back(std::forward<Args>(args)), ...);
+            }
+        } else {
+            (arg_vector.emplace_back(std::forward<Args>(args)), ...);
+        }
 
         // Call the function
         try {
@@ -526,6 +537,8 @@ namespace rangelua::runtime {
     template Result<std::vector<Value>> Value::call(const Value&) const;
     template Result<std::vector<Value>> Value::call(const Value&, const Value&) const;
     template Result<std::vector<Value>> Value::call(const Value&, const Value&, const Value&) const;
+    template Result<std::vector<Value>> Value::call(const std::vector<Value>&) const;
+    template Result<std::vector<Value>> Value::call(std::vector<Value>&) const;
 
     // Helper methods implementation
     Result<Value::Number> Value::coerce_to_number(const Value& value) noexcept {
