@@ -329,6 +329,7 @@ namespace rangelua::backend {
 
             void build_cfg(const BytecodeFunction& function);
             void compute_def_use_sets(const BytecodeFunction& function);
+            Size intersect_dominators(Size b1, Size b2);
         };
 
         /**

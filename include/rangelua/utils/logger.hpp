@@ -121,6 +121,17 @@ namespace rangelua::utils {
 #define MEMORY_LOG_WARN(...)  RANGELUA_LOG_WARN(rangelua::utils::loggers::memory(), __VA_ARGS__)
 #define MEMORY_LOG_ERROR(...) RANGELUA_LOG_ERROR(rangelua::utils::loggers::memory(), __VA_ARGS__)
 
+#define OPTIMIZER_LOG_TRACE(...)                                                                   \
+    RANGELUA_LOG_TRACE(rangelua::utils::loggers::optimizer(), __VA_ARGS__)
+#define OPTIMIZER_LOG_DEBUG(...)                                                                   \
+    RANGELUA_LOG_DEBUG(rangelua::utils::loggers::optimizer(), __VA_ARGS__)
+#define OPTIMIZER_LOG_INFO(...)                                                                    \
+    RANGELUA_LOG_INFO(rangelua::utils::loggers::optimizer(), __VA_ARGS__)
+#define OPTIMIZER_LOG_WARN(...)                                                                    \
+    RANGELUA_LOG_WARN(rangelua::utils::loggers::optimizer(), __VA_ARGS__)
+#define OPTIMIZER_LOG_ERROR(...)                                                                   \
+    RANGELUA_LOG_ERROR(rangelua::utils::loggers::optimizer(), __VA_ARGS__)
+
 #define GC_LOG_TRACE(...) RANGELUA_LOG_TRACE(rangelua::utils::loggers::gc(), __VA_ARGS__)
 #define GC_LOG_DEBUG(...) RANGELUA_LOG_DEBUG(rangelua::utils::loggers::gc(), __VA_ARGS__)
 #define GC_LOG_INFO(...)  RANGELUA_LOG_INFO(rangelua::utils::loggers::gc(), __VA_ARGS__)
