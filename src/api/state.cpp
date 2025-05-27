@@ -10,6 +10,7 @@
 #include <rangelua/core/error.hpp>
 #include <rangelua/frontend/lexer.hpp>
 #include <rangelua/frontend/parser.hpp>
+#include <rangelua/stdlib/basic.hpp>
 #include <rangelua/utils/logger.hpp>
 
 #include <fstream>
@@ -187,9 +188,11 @@ namespace rangelua::api {
     void State::setup_standard_library() {
         logger()->debug("Setting up standard library");
 
-        // TODO: Implement standard library functions
-        // This would include functions like print, type, tostring, etc.
+        // Register basic library functions directly using set_global
+        set_global("print", runtime::value_factory::function(stdlib::basic::print));
+        set_global("type", runtime::value_factory::function(stdlib::basic::type));
 
+        logger()->debug("Basic library functions registered");
         logger()->debug("Standard library setup complete");
     }
 

@@ -52,6 +52,7 @@ target("rangelua_core")
     add_files("src/backend/**.cpp")
     add_files("src/runtime/**.cpp")
     add_files("src/api/**.cpp")
+    add_files("src/stdlib/**.cpp")
     add_files("src/utils/**.cpp")
 
     -- Header files for IDE

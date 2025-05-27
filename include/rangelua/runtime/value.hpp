@@ -255,7 +255,7 @@ namespace rangelua::runtime {
 
         Value table();
         Value table(std::initializer_list<std::pair<Value, Value>> init);
-        Value function(std::function<std::vector<Value>(const std::vector<Value>&)> fn);
+        Value function(const std::function<std::vector<Value>(const std::vector<Value>&)>& fn);
         Value userdata(void* ptr, String type_name = "userdata");
         Value thread();
 
