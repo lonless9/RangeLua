@@ -146,8 +146,14 @@ namespace rangelua::backend {
          */
         [[nodiscard]] Size current_instruction() const noexcept;
 
+        /**
+         * @brief Set the bytecode emitter
+         * @param emitter Pointer to bytecode emitter
+         */
+        void set_emitter(BytecodeEmitter* emitter) noexcept;
+
     private:
-        BytecodeEmitter* emitter_;
+        BytecodeEmitter* emitter_ = nullptr;
         PatchList pending_patches_;
     };
 
@@ -190,11 +196,20 @@ namespace rangelua::backend {
         Size declare_local(String name, Register reg);
 
         /**
+         * @brief Variable resolution result
+         */
+        struct VariableResolution {
+            enum class Type { Local, Upvalue, Global };
+            Type type;
+            std::uint8_t index;  // Register for local, upvalue index for upvalue, unused for global
+        };
+
+        /**
          * @brief Resolve a variable name
          * @param name Variable name
-         * @return Local register, upvalue index, or global
+         * @return Variable resolution result
          */
-        Variant<Register, UpvalueIndex, std::monostate> resolve_variable(const String& name);
+        VariableResolution resolve_variable(const String& name);
 
         /**
          * @brief Get current scope depth
