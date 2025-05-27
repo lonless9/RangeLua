@@ -29,7 +29,7 @@ namespace rangelua {
         /**
          * @brief Generate stack trace for debugging
          */
-        std::vector<String> generate_stack_trace() {
+        [[maybe_unused]] std::vector<String> generate_stack_trace() {
             std::vector<String> trace;
 
 #ifdef RANGELUA_HAS_BACKTRACE

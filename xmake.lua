@@ -16,9 +16,10 @@ if is_mode("debug") then
     add_ldflags("-fsanitize=address")
     add_defines("RANGELUA_DEBUG", "SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
 else
-    add_cxxflags("-O3", "-DNDEBUG", "-flto")
-    add_ldflags("-flto")
+    -- Release configuration without LTO to avoid fmt library global initialization issues
+    add_cxxflags("-O3", "-DNDEBUG")
     add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO")
+    -- Note: LTO disabled due to fmt library global variable initialization conflicts
 end
 
 -- Compiler warnings and standards
@@ -80,6 +81,18 @@ target("error_debug_demo")
 
     -- Source files
     add_files("examples/debug/error_debug_demo.cpp")
+
+    -- Link with core library
+    add_links("rangelua_core")
+
+-- Lexer Debug Test target
+target("lexer_debug_test")
+    set_kind("binary")
+    add_deps("rangelua_core")
+    add_packages("spdlog")
+
+    -- Source files
+    add_files("examples/debug/lexer_debug_test.cpp")
 
     -- Link with core library
     add_links("rangelua_core")

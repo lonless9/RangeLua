@@ -109,7 +109,8 @@ namespace rangelua::runtime {
         }
 
         Size objects_after = allObjects_.size();
-        Size objects_collected = objects_before >= objects_after ? objects_before - objects_after : 0;
+        [[maybe_unused]] Size objects_collected =
+            objects_before >= objects_after ? objects_before - objects_after : 0;
 
         auto end_time = std::chrono::high_resolution_clock::now();
         auto collection_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time);
@@ -438,7 +439,7 @@ namespace rangelua::runtime {
         GC_LOG_DEBUG("Sweeping unmarked objects");
 
         auto it = allObjects_.begin();
-        Size swept_count = 0;
+        [[maybe_unused]] Size swept_count = 0;
 
         while (it != allObjects_.end()) {
             GCObject* obj = *it;

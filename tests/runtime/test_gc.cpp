@@ -369,7 +369,7 @@ TEST_CASE("GC error handling and debugging", "[gc][error][debug]") {
     SECTION("Statistics monitoring with debug output") {
         AdvancedGarbageCollector gc;
 
-        const auto& initial_stats = gc.stats();
+        [[maybe_unused]] const auto& initial_stats = gc.stats();
         RANGELUA_DEBUG_PRINT(
             "Initial GC stats - Collections: " + std::to_string(initial_stats.collectionsRun) +
             ", Objects: " + std::to_string(initial_stats.currentObjects));

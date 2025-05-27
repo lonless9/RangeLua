@@ -47,7 +47,7 @@ TEST_CASE("Memory allocation with error logging", "[integration][memory][error]"
         }
 
         // Format memory statistics
-        Size total = allocator.total_allocated();
+        [[maybe_unused]] Size total = allocator.total_allocated();
         String formatted = RANGELUA_FORMAT_MEMORY(total);
         REQUIRE_FALSE(formatted.empty());
 
@@ -99,9 +99,9 @@ TEST_CASE("Memory debugging features", "[integration][memory][debug]") {
         void* ptr = allocator.allocate(512, alignof(std::max_align_t));
         RANGELUA_ASSERT(ptr != nullptr);
 
-        Size count_before = allocator.allocation_count();
+        [[maybe_unused]] Size count_before = allocator.allocation_count();
         allocator.deallocate(ptr, 512);
-        Size count_after = allocator.allocation_count();
+        [[maybe_unused]] Size count_after = allocator.allocation_count();
 
         RANGELUA_ASSERT(count_after < count_before);
     }
@@ -121,7 +121,7 @@ TEST_CASE("Memory debugging features", "[integration][memory][debug]") {
         RANGELUA_DEBUG_PRINT("Pool allocation 2 successful");
 
         // Test oversized allocation
-        void* ptr3 = pool.allocate(128, alignof(std::max_align_t));
+        [[maybe_unused]] void* ptr3 = pool.allocate(128, alignof(std::max_align_t));
         RANGELUA_ASSERT(ptr3 == nullptr);
         RANGELUA_DEBUG_PRINT("Pool correctly rejected oversized allocation");
 
@@ -161,7 +161,7 @@ TEST_CASE("Error recovery in memory operations", "[integration][memory][error_re
             RANGELUA_DEBUG_PRINT("Memory manager obtained successfully");
             REQUIRE(manager != nullptr);
         } else {
-            ErrorCode error = get_error(result);
+            [[maybe_unused]] ErrorCode error = get_error(result);
             RANGELUA_DEBUG_PRINT("Memory manager access failed with error: " +
                                 String(error_code_to_string(error)));
             FAIL("Memory manager should be available");
