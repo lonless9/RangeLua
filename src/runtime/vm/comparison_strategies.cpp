@@ -107,40 +107,128 @@ namespace rangelua::runtime {
         return std::monostate{};
     }
 
-    // Placeholder implementations for other comparison strategies
-    Status EqKStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                     [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("EQK: Not fully implemented");
+    // EqKStrategy implementation - compare register with constant
+    Status EqKStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        std::int16_t k =
+            static_cast<std::int16_t>(backend::InstructionEncoder::decode_c(instruction));
+
+        const Value& left = context.stack_at(a);
+        const Value& right = context.get_constant(b);
+        bool result = (left == right);
+
+        VM_LOG_DEBUG("EQK: if ((R[{}] == K[{}]) ~= {}) then pc++", a, b, k);
+
+        if ((k != 0) == result) {
+            context.adjust_instruction_pointer(1);
+        }
+
         return std::monostate{};
     }
 
-    Status EqIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                     [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("EQI: Not fully implemented");
+    // EqIStrategy implementation - compare register with immediate
+    Status EqIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::int32_t sb =
+            static_cast<std::int32_t>(backend::InstructionEncoder::decode_b(instruction)) - 128;
+        std::int16_t k =
+            static_cast<std::int16_t>(backend::InstructionEncoder::decode_c(instruction));
+
+        const Value& left = context.stack_at(a);
+        Value right(static_cast<Number>(sb));
+        bool result = (left == right);
+
+        VM_LOG_DEBUG("EQI: if ((R[{}] == {}) ~= {}) then pc++", a, sb, k);
+
+        if ((k != 0) == result) {
+            context.adjust_instruction_pointer(1);
+        }
+
         return std::monostate{};
     }
 
-    Status LtIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                     [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("LTI: Not fully implemented");
+    // LtIStrategy implementation - less than immediate
+    Status LtIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::int32_t sb =
+            static_cast<std::int32_t>(backend::InstructionEncoder::decode_b(instruction)) - 128;
+        std::int16_t k =
+            static_cast<std::int16_t>(backend::InstructionEncoder::decode_c(instruction));
+
+        const Value& left = context.stack_at(a);
+        Value right(static_cast<Number>(sb));
+        bool result = (left < right);
+
+        VM_LOG_DEBUG("LTI: if ((R[{}] < {}) ~= {}) then pc++", a, sb, k);
+
+        if ((k != 0) == result) {
+            context.adjust_instruction_pointer(1);
+        }
+
         return std::monostate{};
     }
 
-    Status LeIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                     [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("LEI: Not fully implemented");
+    // LeIStrategy implementation - less than or equal immediate
+    Status LeIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::int32_t sb =
+            static_cast<std::int32_t>(backend::InstructionEncoder::decode_b(instruction)) - 128;
+        std::int16_t k =
+            static_cast<std::int16_t>(backend::InstructionEncoder::decode_c(instruction));
+
+        const Value& left = context.stack_at(a);
+        Value right(static_cast<Number>(sb));
+        bool result = (left <= right);
+
+        VM_LOG_DEBUG("LEI: if ((R[{}] <= {}) ~= {}) then pc++", a, sb, k);
+
+        if ((k != 0) == result) {
+            context.adjust_instruction_pointer(1);
+        }
+
         return std::monostate{};
     }
 
-    Status GtIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                     [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("GTI: Not fully implemented");
+    // GtIStrategy implementation - greater than immediate
+    Status GtIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::int32_t sb =
+            static_cast<std::int32_t>(backend::InstructionEncoder::decode_b(instruction)) - 128;
+        std::int16_t k =
+            static_cast<std::int16_t>(backend::InstructionEncoder::decode_c(instruction));
+
+        const Value& left = context.stack_at(a);
+        Value right(static_cast<Number>(sb));
+        bool result = (left > right);
+
+        VM_LOG_DEBUG("GTI: if ((R[{}] > {}) ~= {}) then pc++", a, sb, k);
+
+        if ((k != 0) == result) {
+            context.adjust_instruction_pointer(1);
+        }
+
         return std::monostate{};
     }
 
-    Status GeIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                     [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("GEI: Not fully implemented");
+    // GeIStrategy implementation - greater than or equal immediate
+    Status GeIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::int32_t sb =
+            static_cast<std::int32_t>(backend::InstructionEncoder::decode_b(instruction)) - 128;
+        std::int16_t k =
+            static_cast<std::int16_t>(backend::InstructionEncoder::decode_c(instruction));
+
+        const Value& left = context.stack_at(a);
+        Value right(static_cast<Number>(sb));
+        bool result = (left >= right);
+
+        VM_LOG_DEBUG("GEI: if ((R[{}] >= {}) ~= {}) then pc++", a, sb, k);
+
+        if ((k != 0) == result) {
+            context.adjust_instruction_pointer(1);
+        }
+
         return std::monostate{};
     }
 

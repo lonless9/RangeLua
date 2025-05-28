@@ -98,15 +98,83 @@ namespace rangelua::runtime {
         return context.return_from_function(1);
     }
 
-    Status ForLoopStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                         [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("FORLOOP: Not fully implemented");
+    // ForLoopStrategy implementation - numeric for loop
+    Status ForLoopStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::uint32_t bx = backend::InstructionEncoder::decode_bx(instruction);
+
+        VM_LOG_DEBUG("FORLOOP: update counters; if loop continues then pc-={}", bx);
+
+        // R[A] = index, R[A+1] = limit, R[A+2] = step, R[A+3] = loop variable
+        Value& index = context.stack_at(a);
+        const Value& limit = context.stack_at(a + 1);
+        const Value& step = context.stack_at(a + 2);
+
+        // Update index: index = index + step
+        Value new_index = index + step;
+        if (new_index.is_nil()) {
+            VM_LOG_ERROR("Invalid for loop: cannot add index and step");
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        index = new_index;
+
+        // Check if loop should continue
+        bool continue_loop = false;
+        if (step.is_number() && index.is_number() && limit.is_number()) {
+            auto step_num = step.to_number();
+            auto index_num = index.to_number();
+            auto limit_num = limit.to_number();
+
+            if (is_success(step_num) && is_success(index_num) && is_success(limit_num)) {
+                Number step_val = get_value(step_num);
+                Number index_val = get_value(index_num);
+                Number limit_val = get_value(limit_num);
+
+                if (step_val > 0) {
+                    continue_loop = (index_val <= limit_val);
+                } else {
+                    continue_loop = (index_val >= limit_val);
+                }
+            }
+        }
+
+        if (continue_loop) {
+            // Copy index to loop variable and jump back
+            context.stack_at(a + 3) = index;
+            context.adjust_instruction_pointer(-static_cast<std::int32_t>(bx));
+        }
+
         return std::monostate{};
     }
 
-    Status ForPrepStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                         [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("FORPREP: Not fully implemented");
+    // ForPrepStrategy implementation - prepare numeric for loop
+    Status ForPrepStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::uint32_t bx = backend::InstructionEncoder::decode_bx(instruction);
+
+        VM_LOG_DEBUG("FORPREP: check values and prepare counters; if not to run then pc+={}",
+                     bx + 1);
+
+        // R[A] = initial value, R[A+1] = limit, R[A+2] = step
+        Value& initial = context.stack_at(a);
+        const Value& limit = context.stack_at(a + 1);
+        const Value& step = context.stack_at(a + 2);
+
+        // Convert to numbers if needed
+        if (!initial.is_number() || !limit.is_number() || !step.is_number()) {
+            VM_LOG_ERROR("Invalid for loop: initial, limit, and step must be numbers");
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        // Subtract step from initial value (will be added back in first FORLOOP)
+        Value adjusted_initial = initial - step;
+        if (adjusted_initial.is_nil()) {
+            VM_LOG_ERROR("Invalid for loop: cannot subtract step from initial value");
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        initial = adjusted_initial;
         return std::monostate{};
     }
 

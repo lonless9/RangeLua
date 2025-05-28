@@ -335,6 +335,20 @@ namespace rangelua::runtime {
         return Value{};
     }
 
+    Value Value::bitwise_xor(const Value& other) const {
+        auto a_num = coerce_to_number(*this);
+        auto b_num = coerce_to_number(other);
+
+        if (std::holds_alternative<Number>(a_num) && std::holds_alternative<Number>(b_num)) {
+            // Convert to unsigned integers for bitwise operations
+            auto a_uint = static_cast<UInt>(std::get<Number>(a_num));
+            auto b_uint = static_cast<UInt>(std::get<Number>(b_num));
+            return Value(static_cast<Number>(a_uint ^ b_uint));
+        }
+
+        return Value{};
+    }
+
     Value Value::operator~() const {
         auto num = coerce_to_number(*this);
 

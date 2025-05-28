@@ -61,8 +61,7 @@ namespace rangelua::runtime {
     Status BxorStrategy::execute_impl(IVMContext& context, Instruction instruction) {
         return perform_bitwise_operation(
             context, instruction, "BXOR", [](const Value& a, const Value& b) {
-                // TODO: Implement proper XOR in Value class
-                return a | b;  // Placeholder
+                return a.bitwise_xor(b);
             });
     }
 
@@ -101,34 +100,153 @@ namespace rangelua::runtime {
         }
     }
 
-    Status BandKStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                       [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("BANDK: Not fully implemented");
-        return std::monostate{};
+    Status BandKStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        const Value& left = context.stack_at(b);
+        const Value& right = context.get_constant(c);
+
+        VM_LOG_DEBUG("BANDK: R[{}] := R[{}] & K[{}]", a, b, c);
+
+        try {
+            Value result = left & right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot BAND {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            context.stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
-    Status BorKStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                      [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("BORK: Not fully implemented");
-        return std::monostate{};
+    Status BorKStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        const Value& left = context.stack_at(b);
+        const Value& right = context.get_constant(c);
+
+        VM_LOG_DEBUG("BORK: R[{}] := R[{}] | K[{}]", a, b, c);
+
+        try {
+            Value result = left | right;
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot BOR {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            context.stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
-    Status BxorKStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                       [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("BXORK: Not fully implemented");
-        return std::monostate{};
+    Status BxorKStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        const Value& left = context.stack_at(b);
+        const Value& right = context.get_constant(c);
+
+        VM_LOG_DEBUG("BXORK: R[{}] := R[{}] ~ K[{}]", a, b, c);
+
+        try {
+            Value result = left.bitwise_xor(right);
+
+            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
+                VM_LOG_ERROR("Invalid bitwise operation: cannot BXOR {} and {}",
+                             left.type_name(),
+                             right.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            context.stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
-    Status ShriStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                      [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("SHRI: Not fully implemented");
-        return std::monostate{};
+    Status ShriStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        // For SHRI, the C field contains the signed immediate shift amount
+        std::int32_t sc = static_cast<std::int32_t>(c) - 128;  // Convert to signed
+
+        const Value& operand = context.stack_at(b);
+        Value shift_amount(static_cast<Number>(sc));
+
+        VM_LOG_DEBUG("SHRI: R[{}] := R[{}] >> {}", a, b, sc);
+
+        try {
+            Value result = operand >> shift_amount;
+
+            if (result.is_nil() && !operand.is_nil()) {
+                VM_LOG_ERROR(
+                    "Invalid bitwise operation: cannot shift {} by {}", operand.type_name(), sc);
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            context.stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
-    Status ShliStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                      [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("SHLI: Not fully implemented");
-        return std::monostate{};
+    Status ShliStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        // For SHLI, the C field contains the signed immediate shift amount
+        std::int32_t sc = static_cast<std::int32_t>(c) - 128;  // Convert to signed
+
+        const Value& operand = context.stack_at(b);
+        Value shift_amount(static_cast<Number>(sc));
+
+        VM_LOG_DEBUG("SHLI: R[{}] := R[{}] << {}", a, b, sc);
+
+        try {
+            Value result = operand << shift_amount;
+
+            if (result.is_nil() && !operand.is_nil()) {
+                VM_LOG_ERROR(
+                    "Invalid bitwise operation: cannot shift {} by {}", operand.type_name(), sc);
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            context.stack_at(a) = std::move(result);
+            return std::monostate{};
+        } catch (const Exception& e) {
+            return e.code();
+        } catch (...) {
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
     // BitwiseStrategyFactory implementation

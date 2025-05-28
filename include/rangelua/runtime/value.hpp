@@ -190,6 +190,7 @@ namespace rangelua::runtime {
         // Bitwise operators
         Value operator&(const Value& other) const;
         Value operator|(const Value& other) const;
+        Value bitwise_xor(const Value& other) const;  // Bitwise XOR (separate from exponentiation)
         Value operator~() const;
         Value operator<<(const Value& other) const;
         Value operator>>(const Value& other) const;

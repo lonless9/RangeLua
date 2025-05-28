@@ -46,10 +46,27 @@ namespace rangelua::runtime {
         return std::monostate{};
     }
 
-    // Placeholder implementations for other miscellaneous strategies
-    Status ConcatStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                        [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("CONCAT: Not fully implemented");
+    // ConcatStrategy implementation - string concatenation
+    Status ConcatStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+
+        VM_LOG_DEBUG("CONCAT: R[{}] := R[{}].. ... ..R[{}]", a, a, a + b - 1);
+
+        // Concatenate values from R[A] to R[A+B-1]
+        Value result = context.stack_at(a);
+
+        for (Register i = 1; i < b; ++i) {
+            const Value& next = context.stack_at(a + i);
+            result = result.concat(next);
+
+            if (result.is_nil()) {
+                VM_LOG_ERROR("Invalid concatenation operation");
+                return ErrorCode::TYPE_ERROR;
+            }
+        }
+
+        context.stack_at(a) = std::move(result);
         return std::monostate{};
     }
 

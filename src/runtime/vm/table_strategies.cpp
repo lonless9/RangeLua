@@ -91,46 +91,160 @@ namespace rangelua::runtime {
         return std::monostate{};
     }
 
-    // Placeholder implementations for other table strategies
-    Status SetTabUpStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                          [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("SETTABUP: Not fully implemented");
+    // SetTabUpStrategy implementation
+    Status SetTabUpStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        VM_LOG_DEBUG("SETTABUP: UpValue[{}][R[{}]] := R[{}]", a, b, c);
+
+        // For now, implement as global variable assignment
+        const Value& key = context.stack_at(b);
+        const Value& value = context.stack_at(c);
+
+        if (key.is_string()) {
+            auto string_result = key.to_string();
+            if (is_success(string_result)) {
+                String name = get_value(string_result);
+                context.set_global(name, value);
+            }
+        }
+
         return std::monostate{};
     }
 
-    Status GetIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                      [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("GETI: Not fully implemented");
+    // GetIStrategy implementation - table access with integer index
+    Status GetIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        const Value& table = context.stack_at(b);
+        Value key(static_cast<Number>(c));  // C is the integer index
+
+        VM_LOG_DEBUG("GETI: R[{}] := R[{}][{}]", a, b, c);
+
+        if (!table.is_table()) {
+            VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        Value result = table.get(key);
+        context.stack_at(a) = std::move(result);
         return std::monostate{};
     }
 
-    Status SetIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                      [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("SETI: Not fully implemented");
+    // SetIStrategy implementation - table assignment with integer index
+    Status SetIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        Value& table = context.stack_at(a);
+        Value key(static_cast<Number>(b));  // B is the integer index
+        const Value& value = context.stack_at(c);
+
+        VM_LOG_DEBUG("SETI: R[{}][{}] := R[{}]", a, b, c);
+
+        if (!table.is_table()) {
+            VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        table.set(key, value);
         return std::monostate{};
     }
 
-    Status GetFieldStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                          [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("GETFIELD: Not fully implemented");
+    // GetFieldStrategy implementation - table access with constant string key
+    Status GetFieldStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        const Value& table = context.stack_at(b);
+        const Value& key = context.get_constant(c);
+
+        VM_LOG_DEBUG("GETFIELD: R[{}] := R[{}][K[{}]]", a, b, c);
+
+        if (!table.is_table()) {
+            VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        Value result = table.get(key);
+        context.stack_at(a) = std::move(result);
         return std::monostate{};
     }
 
-    Status SetFieldStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                          [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("SETFIELD: Not fully implemented");
+    // SetFieldStrategy implementation - table assignment with constant string key
+    Status SetFieldStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        Value& table = context.stack_at(a);
+        const Value& key = context.get_constant(b);
+        const Value& value = context.stack_at(c);
+
+        VM_LOG_DEBUG("SETFIELD: R[{}][K[{}]] := R[{}]", a, b, c);
+
+        if (!table.is_table()) {
+            VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        table.set(key, value);
         return std::monostate{};
     }
 
-    Status SelfStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                      [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("SELF: Not fully implemented");
+    // SelfStrategy implementation - method call preparation
+    Status SelfStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        const Value& table = context.stack_at(b);
+        const Value& key = context.get_constant(c);
+
+        VM_LOG_DEBUG("SELF: R[{}] := R[{}]; R[{}] := R[{}][K[{}]]", a + 1, b, a, b, c);
+
+        // R[A+1] := R[B] (copy table to next register)
+        context.stack_at(a + 1) = table;
+
+        // R[A] := R[B][K[C]] (get method from table)
+        if (table.is_table()) {
+            Value method = table.get(key);
+            context.stack_at(a) = std::move(method);
+        } else {
+            context.stack_at(a) = Value{};
+        }
+
         return std::monostate{};
     }
 
-    Status SetListStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                         [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("SETLIST: Not fully implemented");
+    // SetListStrategy implementation - set list elements
+    Status SetListStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        Value& table = context.stack_at(a);
+
+        VM_LOG_DEBUG("SETLIST: R[{}][{}+i] := R[{}+i], 1 <= i <= {}", a, c, a, b);
+
+        if (!table.is_table()) {
+            VM_LOG_ERROR("Attempt to set list elements on a {} value", table.type_name());
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        // Set list elements: R[A][C+i] := R[A+i] for i = 1 to B
+        for (Register i = 1; i <= b; ++i) {
+            Value key(static_cast<Number>(c + i));
+            const Value& value = context.stack_at(a + i);
+            table.set(key, value);
+        }
+
         return std::monostate{};
     }
 
