@@ -59,6 +59,7 @@ namespace rangelua::backend {
                 Register key;       // Key register or constant index
                 bool is_const_key;  // True if key is constant
                 bool is_int_key;    // True if key is integer constant (for GETI)
+                bool is_string_key;  // True if key is string constant (for GETFIELD)
             } indexed;
         } u{};
 

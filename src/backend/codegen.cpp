@@ -107,8 +107,13 @@ namespace rangelua::backend {
                     // Use GETI for integer constants
                     emitter_.emit_abc(
                         OpCode::OP_GETI, reg, expr.u.indexed.table, expr.u.indexed.key);
+                } else if (expr.u.indexed.is_const_key &&
+                           (expr.u.indexed.is_string_key || !expr.u.indexed.is_int_key)) {
+                    // Use GETFIELD for string constants and floating-point constants
+                    emitter_.emit_abc(
+                        OpCode::OP_GETFIELD, reg, expr.u.indexed.table, expr.u.indexed.key);
                 } else {
-                    // Use GETTABLE for register keys or other constant types
+                    // Use GETTABLE for register keys
                     emitter_.emit_abc(
                         OpCode::OP_GETTABLE, reg, expr.u.indexed.table, expr.u.indexed.key);
                 }
@@ -483,6 +488,9 @@ namespace rangelua::backend {
                 } else if constexpr (std::is_same_v<T, Number>) {
                     expr.kind = ExpressionKind::KFLT;
                     expr.u.nval = value;
+                    // Add floating-point constant to constant table
+                    expr.kind = ExpressionKind::K;
+                    expr.u.info = emitter_.add_constant(value);
                 } else if constexpr (std::is_same_v<T, String>) {
                     expr.kind = ExpressionKind::KSTR;
                     // For now, put string constants in constant table
@@ -950,16 +958,35 @@ namespace rangelua::backend {
                     }
                     ExpressionDesc key_expr = current_expression_.value();
 
-                    // Convert to registers
+                    // Convert table to register
                     Register table_reg = expression_to_any_register(table_expr);
-                    Register key_reg = expression_to_any_register(key_expr);
                     Register value_reg = expression_to_any_register(value_expr);
 
-                    // Emit SETTABLE instruction
-                    emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, key_reg, value_reg);
+                    // Emit appropriate SET instruction based on key type
+                    if (key_expr.kind == ExpressionKind::KINT) {
+                        // Use SETI for integer constants
+                        emitter_.emit_abc(OpCode::OP_SETI,
+                                          table_reg,
+                                          static_cast<Register>(key_expr.u.ival),
+                                          value_reg);
+                        free_expression(key_expr);
+                    } else if (key_expr.kind == ExpressionKind::K ||
+                               key_expr.kind == ExpressionKind::KSTR) {
+                        // Use SETFIELD for string constants and floating-point constants
+                        emitter_.emit_abc(OpCode::OP_SETFIELD,
+                                          table_reg,
+                                          static_cast<Register>(key_expr.u.info),
+                                          value_reg);
+                        free_expression(key_expr);
+                    } else {
+                        // Use SETTABLE for register keys
+                        Register key_reg = expression_to_any_register(key_expr);
+                        emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, key_reg, value_reg);
+                        free_expression(key_expr);
+                    }
 
                     // Free temporary registers
-                    free_expressions(table_expr, key_expr);
+                    free_expression(table_expr);
                     free_expression(value_expr);
                 }
 
@@ -1211,20 +1238,23 @@ namespace rangelua::backend {
             result_expr.u.indexed.key = static_cast<Register>(key_expr.u.ival);
             result_expr.u.indexed.is_const_key = true;
             result_expr.u.indexed.is_int_key = true;
+            result_expr.u.indexed.is_string_key = false;
             // Free the key expression since we're using the constant
             free_expression(key_expr);
-        } else if (key_expr.kind == ExpressionKind::K || key_expr.kind == ExpressionKind::KFLT ||
-                   key_expr.kind == ExpressionKind::KSTR) {
-            // For other constants, use the constant index
+        } else if (key_expr.kind == ExpressionKind::K || key_expr.kind == ExpressionKind::KSTR) {
+            // For string constants, use the constant index for GETFIELD instruction
             result_expr.u.indexed.key = static_cast<Register>(key_expr.u.info);
             result_expr.u.indexed.is_const_key = true;
             result_expr.u.indexed.is_int_key = false;
+            result_expr.u.indexed.is_string_key = true;
             // Free the key expression since we're using the constant
             free_expression(key_expr);
+
         } else {
             result_expr.u.indexed.key = expression_to_any_register(key_expr);
             result_expr.u.indexed.is_const_key = false;
             result_expr.u.indexed.is_int_key = false;
+            result_expr.u.indexed.is_string_key = false;
             // Don't free key_expr here since the register is still needed
         }
 
