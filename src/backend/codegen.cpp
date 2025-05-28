@@ -610,6 +610,12 @@ namespace rangelua::backend {
                 generate_comparison_with_result(
                     right_reg, left_reg, result_reg, OpCode::OP_LE, false);
                 break;
+            case frontend::BinaryOpExpression::Operator::And:
+                generate_logical_and(left_expr, right_expr, result_reg);
+                return;  // Early return since we handle register management internally
+            case frontend::BinaryOpExpression::Operator::Or:
+                generate_logical_or(left_expr, right_expr, result_reg);
+                return;  // Early return since we handle register management internally
             default:
                 CODEGEN_LOG_ERROR("Unsupported binary operator");
                 break;
@@ -648,6 +654,96 @@ namespace rangelua::backend {
                           right_reg,
                           result_reg,
                           negate);
+    }
+
+    void CodeGenerator::generate_logical_and(ExpressionDesc& left_expr,
+                                             ExpressionDesc& right_expr,
+                                             Register result_reg) {
+        CODEGEN_LOG_DEBUG("Generating logical AND operation");
+
+        // Lua AND semantics: if left is falsy, return left; otherwise return right
+        // Implementation:
+        // 1. Evaluate left operand
+        // 2. Move left to result register
+        // 3. Test left operand - if falsy, skip right evaluation
+        // 4. Evaluate right operand and move to result register
+
+        // Convert left operand to register
+        Register left_reg = expression_to_any_register(left_expr);
+
+        // Move left value to result register initially
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, left_reg, 0);
+
+        // Test left operand - if falsy (nil or false), skip right evaluation
+        emitter_.emit_abc(OpCode::OP_TEST, left_reg, 0, 0);  // Jump if left is falsy
+        Size skip_right_jump = jump_manager_.emit_jump();
+
+        // Left is truthy, evaluate right operand
+        Register right_reg = expression_to_any_register(right_expr);
+
+        // Move right value to result register (overwriting left)
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, right_reg, 0);
+
+        // Patch the skip jump to here
+        Size end_pos = jump_manager_.current_instruction();
+        jump_manager_.patch_jump(skip_right_jump, end_pos);
+
+        // Free operand registers
+        free_expressions(left_expr, right_expr);
+
+        // Set result expression
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = result_reg;
+        current_expression_ = result_expr;
+
+        CODEGEN_LOG_DEBUG(
+            "Logical AND generated: R[{}] := R[{}] and R[{}]", result_reg, left_reg, right_reg);
+    }
+
+    void CodeGenerator::generate_logical_or(ExpressionDesc& left_expr,
+                                            ExpressionDesc& right_expr,
+                                            Register result_reg) {
+        CODEGEN_LOG_DEBUG("Generating logical OR operation");
+
+        // Lua OR semantics: if left is truthy, return left; otherwise return right
+        // Implementation:
+        // 1. Evaluate left operand
+        // 2. Move left to result register
+        // 3. Test left operand - if truthy, skip right evaluation
+        // 4. Evaluate right operand and move to result register
+
+        // Convert left operand to register
+        Register left_reg = expression_to_any_register(left_expr);
+
+        // Move left value to result register initially
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, left_reg, 0);
+
+        // Test left operand - if truthy, skip right evaluation
+        emitter_.emit_abc(OpCode::OP_TEST, left_reg, 0, 1);  // Jump if left is truthy (k=1)
+        Size skip_right_jump = jump_manager_.emit_jump();
+
+        // Left is falsy, evaluate right operand
+        Register right_reg = expression_to_any_register(right_expr);
+
+        // Move right value to result register (overwriting left)
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, right_reg, 0);
+
+        // Patch the skip jump to here
+        Size end_pos = jump_manager_.current_instruction();
+        jump_manager_.patch_jump(skip_right_jump, end_pos);
+
+        // Free operand registers
+        free_expressions(left_expr, right_expr);
+
+        // Set result expression
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = result_reg;
+        current_expression_ = result_expr;
+
+        CODEGEN_LOG_DEBUG(
+            "Logical OR generated: R[{}] := R[{}] or R[{}]", result_reg, left_reg, right_reg);
     }
 
     void CodeGenerator::visit(const frontend::UnaryOpExpression& node) {

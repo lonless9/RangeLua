@@ -476,6 +476,12 @@ namespace rangelua::backend {
                                              Register result_reg,
                                              OpCode comparison_op,
                                              bool negate);
+        void generate_logical_and(ExpressionDesc& left_expr,
+                                  ExpressionDesc& right_expr,
+                                  Register result_reg);
+        void generate_logical_or(ExpressionDesc& left_expr,
+                                 ExpressionDesc& right_expr,
+                                 Register result_reg);
 
         // Loop context helpers
         void enter_loop(Size loop_start);
