@@ -80,12 +80,14 @@ namespace rangelua::runtime {
     }
 
     // Placeholder implementations for other control flow strategies
-    Status TailCallStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status TailCallStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("TAILCALL: Not fully implemented");
         return std::monostate{};
     }
 
-    Status Return0Strategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status Return0Strategy::execute_impl(IVMContext& context,
+                                         [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("RETURN0: return");
         return context.return_from_function(0);
     }
@@ -96,37 +98,44 @@ namespace rangelua::runtime {
         return context.return_from_function(1);
     }
 
-    Status ForLoopStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status ForLoopStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                         [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("FORLOOP: Not fully implemented");
         return std::monostate{};
     }
 
-    Status ForPrepStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status ForPrepStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                         [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("FORPREP: Not fully implemented");
         return std::monostate{};
     }
 
-    Status TForPrepStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status TForPrepStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("TFORPREP: Not fully implemented");
         return std::monostate{};
     }
 
-    Status TForCallStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status TForCallStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("TFORCALL: Not fully implemented");
         return std::monostate{};
     }
 
-    Status TForLoopStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status TForLoopStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("TFORLOOP: Not fully implemented");
         return std::monostate{};
     }
 
-    Status CloseStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status CloseStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                       [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("CLOSE: Not fully implemented");
         return std::monostate{};
     }
 
-    Status TbcStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status TbcStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                     [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("TBC: Not fully implemented");
         return std::monostate{};
     }

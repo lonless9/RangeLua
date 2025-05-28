@@ -92,37 +92,44 @@ namespace rangelua::runtime {
     }
 
     // Placeholder implementations for other table strategies
-    Status SetTabUpStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status SetTabUpStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("SETTABUP: Not fully implemented");
         return std::monostate{};
     }
 
-    Status GetIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status GetIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                      [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("GETI: Not fully implemented");
         return std::monostate{};
     }
 
-    Status SetIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status SetIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                      [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("SETI: Not fully implemented");
         return std::monostate{};
     }
 
-    Status GetFieldStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status GetFieldStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("GETFIELD: Not fully implemented");
         return std::monostate{};
     }
 
-    Status SetFieldStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status SetFieldStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("SETFIELD: Not fully implemented");
         return std::monostate{};
     }
 
-    Status SelfStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status SelfStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                      [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("SELF: Not fully implemented");
         return std::monostate{};
     }
 
-    Status SetListStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status SetListStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                         [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("SETLIST: Not fully implemented");
         return std::monostate{};
     }

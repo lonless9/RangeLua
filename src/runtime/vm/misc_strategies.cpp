@@ -47,37 +47,44 @@ namespace rangelua::runtime {
     }
 
     // Placeholder implementations for other miscellaneous strategies
-    Status ConcatStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status ConcatStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                        [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("CONCAT: Not fully implemented");
         return std::monostate{};
     }
 
-    Status VarargStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status VarargStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                        [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("VARARG: Not fully implemented");
         return std::monostate{};
     }
 
-    Status VarargPrepStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status VarargPrepStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                            [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("VARARGPREP: Not fully implemented");
         return std::monostate{};
     }
 
-    Status MmbinStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status MmbinStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                       [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("MMBIN: Not fully implemented");
         return std::monostate{};
     }
 
-    Status MmbiniStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status MmbiniStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                        [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("MMBINI: Not fully implemented");
         return std::monostate{};
     }
 
-    Status MmbinkStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status MmbinkStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                        [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("MMBINK: Not fully implemented");
         return std::monostate{};
     }
 
-    Status ExtraArgStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status ExtraArgStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                          [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("EXTRAARG: Not fully implemented");
         return std::monostate{};
     }

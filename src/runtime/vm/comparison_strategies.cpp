@@ -108,32 +108,38 @@ namespace rangelua::runtime {
     }
 
     // Placeholder implementations for other comparison strategies
-    Status EqKStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status EqKStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                     [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("EQK: Not fully implemented");
         return std::monostate{};
     }
 
-    Status EqIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status EqIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                     [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("EQI: Not fully implemented");
         return std::monostate{};
     }
 
-    Status LtIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status LtIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                     [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("LTI: Not fully implemented");
         return std::monostate{};
     }
 
-    Status LeIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status LeIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                     [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("LEI: Not fully implemented");
         return std::monostate{};
     }
 
-    Status GtIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status GtIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                     [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("GTI: Not fully implemented");
         return std::monostate{};
     }
 
-    Status GeIStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+    Status GeIStrategy::execute_impl([[maybe_unused]] IVMContext& context,
+                                     [[maybe_unused]] Instruction instruction) {
         VM_LOG_DEBUG("GEI: Not fully implemented");
         return std::monostate{};
     }
