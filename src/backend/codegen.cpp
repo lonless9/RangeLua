@@ -587,22 +587,28 @@ namespace rangelua::backend {
                 emitter_.emit_abc(OpCode::OP_SHR, result_reg, left_reg, right_reg);
                 break;
             case frontend::BinaryOpExpression::Operator::Equal:
-                emitter_.emit_abc(OpCode::OP_EQ, left_reg, right_reg, 0);
+                generate_comparison_with_result(
+                    left_reg, right_reg, result_reg, OpCode::OP_EQ, false);
                 break;
             case frontend::BinaryOpExpression::Operator::NotEqual:
-                emitter_.emit_abc(OpCode::OP_EQ, left_reg, right_reg, 1);
+                generate_comparison_with_result(
+                    left_reg, right_reg, result_reg, OpCode::OP_EQ, true);
                 break;
             case frontend::BinaryOpExpression::Operator::Less:
-                emitter_.emit_abc(OpCode::OP_LT, left_reg, right_reg, 0);
+                generate_comparison_with_result(
+                    left_reg, right_reg, result_reg, OpCode::OP_LT, false);
                 break;
             case frontend::BinaryOpExpression::Operator::LessEqual:
-                emitter_.emit_abc(OpCode::OP_LE, left_reg, right_reg, 0);
+                generate_comparison_with_result(
+                    left_reg, right_reg, result_reg, OpCode::OP_LE, false);
                 break;
             case frontend::BinaryOpExpression::Operator::Greater:
-                emitter_.emit_abc(OpCode::OP_LT, right_reg, left_reg, 0);
+                generate_comparison_with_result(
+                    right_reg, left_reg, result_reg, OpCode::OP_LT, false);
                 break;
             case frontend::BinaryOpExpression::Operator::GreaterEqual:
-                emitter_.emit_abc(OpCode::OP_LE, right_reg, left_reg, 0);
+                generate_comparison_with_result(
+                    right_reg, left_reg, result_reg, OpCode::OP_LE, false);
                 break;
             default:
                 CODEGEN_LOG_ERROR("Unsupported binary operator");
@@ -617,6 +623,31 @@ namespace rangelua::backend {
         result_expr.kind = ExpressionKind::NONRELOC;
         result_expr.u.info = result_reg;
         current_expression_ = result_expr;
+    }
+
+    void CodeGenerator::generate_comparison_with_result(Register left_reg,
+                                                        Register right_reg,
+                                                        Register result_reg,
+                                                        OpCode comparison_op,
+                                                        bool negate) {
+        // Generate comparison instruction that produces a boolean result
+        // This follows Lua 5.5 pattern for comparison operations used as expressions
+
+        // Load false into result register first (default case)
+        emitter_.emit_abc(OpCode::OP_LOADFALSE, result_reg, 0, 0);
+
+        // Emit the comparison instruction - if true, it will skip the next instruction
+        emitter_.emit_abc(comparison_op, left_reg, right_reg, negate ? 1 : 0);
+
+        // Load true into result register (executed if comparison succeeded)
+        emitter_.emit_abc(OpCode::OP_LOADTRUE, result_reg, 0, 0);
+
+        CODEGEN_LOG_DEBUG("Generated comparison with result: {} R[{}] R[{}] -> R[{}], negate: {}",
+                          static_cast<int>(comparison_op),
+                          left_reg,
+                          right_reg,
+                          result_reg,
+                          negate);
     }
 
     void CodeGenerator::visit(const frontend::UnaryOpExpression& node) {

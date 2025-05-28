@@ -471,6 +471,11 @@ namespace rangelua::backend {
                                   ExpressionDesc& operand);
         void emit_assignment(const ExpressionDesc& target, ExpressionDesc& source);
         void emit_conditional_jump(ExpressionDesc& condition, Size target);
+        void generate_comparison_with_result(Register left_reg,
+                                             Register right_reg,
+                                             Register result_reg,
+                                             OpCode comparison_op,
+                                             bool negate);
 
         // Loop context helpers
         void enter_loop(Size loop_start);
