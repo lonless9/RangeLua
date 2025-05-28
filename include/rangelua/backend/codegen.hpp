@@ -453,6 +453,7 @@ namespace rangelua::backend {
         void discharge_to_any_register(ExpressionDesc& expr);
         Register expression_to_any_register(ExpressionDesc& expr);
         Register expression_to_next_register(ExpressionDesc& expr);
+        void expression_to_next_register_inplace(ExpressionDesc& expr);
         void expression_to_register(ExpressionDesc& expr, Register reg);
         void free_expression(ExpressionDesc& expr);
         void free_expressions(ExpressionDesc& e1, ExpressionDesc& e2);
@@ -487,6 +488,7 @@ namespace rangelua::backend {
         void generate_logical_or(ExpressionDesc& left_expr,
                                  ExpressionDesc& right_expr,
                                  Register result_reg);
+        void generate_concat_operation(ExpressionDesc& left_expr, ExpressionDesc& right_expr);
 
         // Loop context helpers
         void enter_loop(Size loop_start);

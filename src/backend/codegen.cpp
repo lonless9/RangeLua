@@ -220,6 +220,16 @@ namespace rangelua::backend {
         return reg;
     }
 
+    void CodeGenerator::expression_to_next_register_inplace(ExpressionDesc& expr) {
+        // Similar to luaK_exp2nextreg - ensures expression is in next available register
+        discharge_vars(expr);
+        free_expression(expr);
+        Register reg = register_allocator_.reserve_registers(1);
+        discharge_to_register(expr, reg);
+        expr.kind = ExpressionKind::NONRELOC;
+        expr.u.info = reg;
+    }
+
     void CodeGenerator::expression_to_register(ExpressionDesc& expr, Register reg) {
         discharge_to_register(expr, reg);
     }
@@ -643,6 +653,10 @@ namespace rangelua::backend {
             case frontend::BinaryOpExpression::Operator::Or:
                 generate_logical_or(left_expr, right_expr, result_reg);
                 return;  // Early return since we handle register management internally
+            case frontend::BinaryOpExpression::Operator::Concat:
+                // Handle concatenation following Lua 5.5 pattern
+                generate_concat_operation(left_expr, right_expr);
+                return;  // Early return since we handle register management internally
             default:
                 CODEGEN_LOG_ERROR("Unsupported binary operator");
                 break;
@@ -771,6 +785,39 @@ namespace rangelua::backend {
 
         CODEGEN_LOG_DEBUG(
             "Logical OR generated: R[{}] := R[{}] or R[{}]", result_reg, left_reg, right_reg);
+    }
+
+    void CodeGenerator::generate_concat_operation(ExpressionDesc& left_expr,
+                                                  ExpressionDesc& right_expr) {
+        CODEGEN_LOG_DEBUG("Generating concatenation operation");
+
+        // For now, disable CONCAT merging optimization to fix the register allocation issue
+        // TODO: Implement proper consecutive register allocation for CONCAT merging
+
+        // Following Lua 5.5 pattern: ensure operands are in consecutive registers
+        expression_to_next_register_inplace(left_expr);
+        expression_to_next_register_inplace(right_expr);
+
+        // Emit CONCAT instruction for 2 operands
+        emitter_.emit_abc(OpCode::OP_CONCAT,
+                          static_cast<Register>(left_expr.u.info),  // Start register
+                          2,                                        // Number of elements (2)
+                          0                                         // Unused C field
+        );
+
+        // Free the right operand register
+        free_expression(right_expr);
+
+        // Set result expression - the result is in the left operand's register
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = left_expr.u.info;
+        current_expression_ = result_expr;
+
+        CODEGEN_LOG_DEBUG("Concatenation generated: R[{}] := R[{}]..R[{}] (count=2)",
+                          static_cast<Register>(left_expr.u.info),
+                          static_cast<Register>(left_expr.u.info),
+                          static_cast<Register>(left_expr.u.info) + 1);
     }
 
     void CodeGenerator::visit(const frontend::UnaryOpExpression& node) {
