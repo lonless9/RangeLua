@@ -100,9 +100,18 @@ namespace rangelua::backend {
                 break;
             }
             case ExpressionKind::INDEXED: {
-                // Table access - emit GETTABLE instruction
+                // Table access - emit appropriate instruction based on key type
                 Register reg = register_allocator_.reserve_registers(1);
-                emitter_.emit_abc(OpCode::OP_GETTABLE, reg, expr.u.indexed.table, expr.u.indexed.key);
+
+                if (expr.u.indexed.is_const_key && expr.u.indexed.is_int_key) {
+                    // Use GETI for integer constants
+                    emitter_.emit_abc(
+                        OpCode::OP_GETI, reg, expr.u.indexed.table, expr.u.indexed.key);
+                } else {
+                    // Use GETTABLE for register keys or other constant types
+                    emitter_.emit_abc(
+                        OpCode::OP_GETTABLE, reg, expr.u.indexed.table, expr.u.indexed.key);
+                }
 
                 // Free the table and key registers
                 register_allocator_.free_register(expr.u.indexed.table, register_allocator_.local_count());
@@ -1197,18 +1206,30 @@ namespace rangelua::backend {
         result_expr.u.indexed.table = expression_to_any_register(table_expr);
 
         // Check if key is a constant
-        if (key_expr.kind == ExpressionKind::K || key_expr.kind == ExpressionKind::KINT ||
-            key_expr.kind == ExpressionKind::KFLT || key_expr.kind == ExpressionKind::KSTR) {
+        if (key_expr.kind == ExpressionKind::KINT) {
+            // For integer constants, store the integer value directly for GETI instruction
+            result_expr.u.indexed.key = static_cast<Register>(key_expr.u.ival);
+            result_expr.u.indexed.is_const_key = true;
+            result_expr.u.indexed.is_int_key = true;
+            // Free the key expression since we're using the constant
+            free_expression(key_expr);
+        } else if (key_expr.kind == ExpressionKind::K || key_expr.kind == ExpressionKind::KFLT ||
+                   key_expr.kind == ExpressionKind::KSTR) {
+            // For other constants, use the constant index
             result_expr.u.indexed.key = static_cast<Register>(key_expr.u.info);
             result_expr.u.indexed.is_const_key = true;
+            result_expr.u.indexed.is_int_key = false;
+            // Free the key expression since we're using the constant
+            free_expression(key_expr);
         } else {
             result_expr.u.indexed.key = expression_to_any_register(key_expr);
             result_expr.u.indexed.is_const_key = false;
+            result_expr.u.indexed.is_int_key = false;
+            // Don't free key_expr here since the register is still needed
         }
 
-        // Clean up input expressions
-        free_expression(table_expr);
-        free_expression(key_expr);
+        // Don't free table_expr here since the register is still needed
+        // The registers will be freed when the INDEXED expression is discharged
 
         current_expression_ = result_expr;
     }
@@ -1217,14 +1238,7 @@ namespace rangelua::backend {
         CODEGEN_LOG_DEBUG("Generating code for table constructor");
 
         // Allocate register for the new table
-        auto table_reg_result = register_allocator_.allocate();
-        if (is_error(table_reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for table constructor");
-            return;
-        }
-
-        Register table_reg = get_value(table_reg_result);
-        current_result_register_ = table_reg;
+        Register table_reg = register_allocator_.reserve_registers(1);
 
         const auto& fields = node.fields();
 
@@ -1252,29 +1266,25 @@ namespace rangelua::backend {
                 case frontend::TableConstructorExpression::Field::Type::List: {
                     // List field: table[list_index] = value
                     field.value->accept(*this);
-                    Register value_reg = current_result_register_.value_or(0);
 
-                    // For list elements, we can use SETLIST optimization for consecutive elements
-                    // For now, use SETTABLE with immediate index
-                    if (list_index <= 255) {
-                        // Use immediate index if it fits in a register
-                        emitter_.emit_abc(OpCode::OP_SETTABLE,
-                                          table_reg,
-                                          static_cast<Register>(list_index),
-                                          value_reg);
-                    } else {
-                        // For larger indices, load the index into a register first
-                        auto index_reg_result = register_allocator_.allocate();
-                        if (is_success(index_reg_result)) {
-                            Register index_reg = get_value(index_reg_result);
-                            emitter_.emit_asbx(
-                                OpCode::OP_LOADI, index_reg, static_cast<std::int32_t>(list_index));
-                            emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, index_reg, value_reg);
-                            register_allocator_.free(index_reg);
-                        }
+                    if (!current_expression_.has_value()) {
+                        CODEGEN_LOG_ERROR("Table field value did not produce expression");
+                        continue;
                     }
 
-                    register_allocator_.free(value_reg);
+                    ExpressionDesc value_expr = current_expression_.value();
+                    Register value_reg = expression_to_any_register(value_expr);
+
+                    // Load the index into a register first
+                    Register index_reg = register_allocator_.reserve_registers(1);
+                    emitter_.emit_asbx(
+                        OpCode::OP_LOADI, index_reg, static_cast<std::int32_t>(list_index));
+                    emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, index_reg, value_reg);
+
+                    // Free temporary registers
+                    register_allocator_.free_register(index_reg, register_allocator_.local_count());
+                    free_expression(value_expr);
+
                     list_index++;
                     break;
                 }
@@ -1283,23 +1293,38 @@ namespace rangelua::backend {
                     // Array/Record field: table[key] = value
                     if (field.key) {
                         field.key->accept(*this);
-                        Register key_reg = current_result_register_.value_or(0);
+                        if (!current_expression_.has_value()) {
+                            CODEGEN_LOG_ERROR("Table field key did not produce expression");
+                            continue;
+                        }
+                        ExpressionDesc key_expr = current_expression_.value();
+                        Register key_reg = expression_to_any_register(key_expr);
 
                         field.value->accept(*this);
-                        Register value_reg = current_result_register_.value_or(0);
+                        if (!current_expression_.has_value()) {
+                            CODEGEN_LOG_ERROR("Table field value did not produce expression");
+                            free_expression(key_expr);
+                            continue;
+                        }
+                        ExpressionDesc value_expr = current_expression_.value();
+                        Register value_reg = expression_to_any_register(value_expr);
 
                         emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, key_reg, value_reg);
 
-                        register_allocator_.free(key_reg);
-                        register_allocator_.free(value_reg);
+                        // Free temporary registers
+                        free_expression(key_expr);
+                        free_expression(value_expr);
                     }
                     break;
                 }
             }
         }
 
-        // Result is already in table_reg
-        current_result_register_ = table_reg;
+        // Create result expression
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = table_reg;
+        current_expression_ = result_expr;
     }
 
     void CodeGenerator::visit(const frontend::FunctionExpression& node) {
