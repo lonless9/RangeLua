@@ -55,8 +55,9 @@ namespace rangelua::stdlib::basic {
                     str = "nil";  // Fallback
                 }
             } else {
-                // For other types (table, function, userdata, thread), use type name
-                str = args[i].type_name();
+                // For other types (table, function, userdata, thread), use debug string with
+                // address
+                str = args[i].debug_string();
             }
 
             std::cout << str;

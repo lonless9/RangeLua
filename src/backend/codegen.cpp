@@ -1458,8 +1458,11 @@ namespace rangelua::backend {
         nested_emitter.set_parameter_count(param_count);
         nested_emitter.set_vararg(has_vararg);
 
-        // Generate code for function body
-        node.body().accept(*this);
+        // Create a separate code generator for the nested function
+        CodeGenerator nested_generator(nested_emitter);
+
+        // Generate code for function body using the nested generator
+        node.body().accept(nested_generator);
 
         // Ensure function ends with return instruction
         if (nested_emitter.instruction_count() == 0 ||
@@ -1469,7 +1472,7 @@ namespace rangelua::backend {
         }
 
         // Update stack size for nested function
-        nested_emitter.set_stack_size(register_allocator_.high_water_mark() + 1);
+        nested_emitter.set_stack_size(nested_generator.register_allocator().high_water_mark() + 1);
 
         // Get the generated function
         BytecodeFunction nested_function = nested_emitter.get_function();
@@ -1496,6 +1499,12 @@ namespace rangelua::backend {
         Size prototype_index = emitter_.add_prototype(prototype);
         emitter_.emit_abx(
             OpCode::OP_CLOSURE, result_reg, static_cast<std::uint32_t>(prototype_index));
+
+        // Create expression descriptor for the closure
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = result_reg;
+        current_expression_ = result_expr;
 
         // Handle upvalues for the closure
         // For now, we'll implement a simplified upvalue system
