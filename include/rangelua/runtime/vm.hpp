@@ -239,6 +239,11 @@ namespace rangelua::runtime {
         Status return_from_function(Size result_count) override;
 
         /**
+         * @brief Return from function with specific return value start register
+         */
+        Status return_from_function(Register return_start, Size result_count);
+
+        /**
          * @brief Set error code
          */
         void set_error(ErrorCode code) override;

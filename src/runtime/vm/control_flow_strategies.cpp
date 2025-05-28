@@ -4,9 +4,10 @@
  * @version 0.1.0
  */
 
-#include <rangelua/runtime/vm/control_flow_strategies.hpp>
 #include <rangelua/backend/bytecode.hpp>
 #include <rangelua/runtime/value.hpp>
+#include <rangelua/runtime/vm.hpp>
+#include <rangelua/runtime/vm/control_flow_strategies.hpp>
 #include <rangelua/utils/logger.hpp>
 
 namespace rangelua::runtime {
@@ -78,7 +79,14 @@ namespace rangelua::runtime {
         VM_LOG_DEBUG("RETURN: return R[{}], ... ,R[{}]", a, a + b - 2);
 
         Size return_count = (b == 0) ? (context.stack_size() - a) : (b - 1);
-        return context.return_from_function(return_count);
+
+        // Cast to VirtualMachine to access the new return_from_function method
+        if (auto* vm = dynamic_cast<VirtualMachine*>(&context)) {
+            return vm->return_from_function(a, return_count);
+        } else {
+            // Fallback to old method
+            return context.return_from_function(return_count);
+        }
     }
 
     // TailCallStrategy implementation

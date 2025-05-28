@@ -465,22 +465,98 @@ namespace rangelua::runtime {
         }
 
         CallFrame& frame = call_stack_.back();
-        Size base = frame.stack_base;
+        Size current_base = frame.stack_base;
 
-        // Move return values to the correct position
+        VM_LOG_DEBUG("return_from_function: current_base={}, result_count={}, stack_top_={}",
+                     current_base,
+                     result_count,
+                     stack_top_);
+
+        // The return values are currently at the top of the stack
+        // For RETURN instruction, the values start at the specified register
+        // We need to save them in a temporary vector
+        std::vector<Value> return_values;
+        return_values.reserve(result_count);
+
+        // The return values start at stack_top_ - result_count
+        Size return_start = stack_top_ - result_count;
         for (Size i = 0; i < result_count; ++i) {
-            if (base + i < stack_.size() && stack_top_ > i) {
-                stack_[base + i] = stack_[stack_top_ - result_count + i];
+            if (return_start + i < stack_.size()) {
+                return_values.push_back(std::move(stack_[return_start + i]));
+                VM_LOG_DEBUG("Saved return value[{}]: {}", i, return_values[i].debug_string());
             }
         }
-
-        // Adjust stack top
-        stack_top_ = base + result_count;
 
         // Pop the call frame
         call_stack_.pop_back();
 
-        VM_LOG_DEBUG("Returned from function with {} results", result_count);
+        // Now place the return values at the current base
+        for (Size i = 0; i < result_count && i < return_values.size(); ++i) {
+            if (current_base + i < stack_.size()) {
+                stack_[current_base + i] = std::move(return_values[i]);
+                VM_LOG_DEBUG("Placed return value[{}] at stack[{}]: {}",
+                             i,
+                             current_base + i,
+                             stack_[current_base + i].debug_string());
+            }
+        }
+
+        // Adjust stack top to just after the return values
+        stack_top_ = current_base + result_count;
+
+        VM_LOG_DEBUG(
+            "Returned from function with {} results, new stack_top_={}", result_count, stack_top_);
+        return std::monostate{};
+    }
+
+    Status VirtualMachine::return_from_function(Register return_start, Size result_count) {
+        if (call_stack_.empty()) {
+            VM_LOG_ERROR("Cannot return from function: call stack is empty");
+            return ErrorCode::RUNTIME_ERROR;
+        }
+
+        CallFrame& frame = call_stack_.back();
+        Size current_base = frame.stack_base;
+
+        VM_LOG_DEBUG("return_from_function: return_start={}, current_base={}, result_count={}, "
+                     "stack_top_={}",
+                     return_start,
+                     current_base,
+                     result_count,
+                     stack_top_);
+
+        // The return values start at the specified register (relative to current frame)
+        std::vector<Value> return_values;
+        return_values.reserve(result_count);
+
+        // Convert relative register to absolute stack position
+        Size absolute_start = current_base + return_start;
+        for (Size i = 0; i < result_count; ++i) {
+            if (absolute_start + i < stack_.size()) {
+                return_values.push_back(std::move(stack_[absolute_start + i]));
+                VM_LOG_DEBUG("Saved return value[{}]: {}", i, return_values[i].debug_string());
+            }
+        }
+
+        // Pop the call frame
+        call_stack_.pop_back();
+
+        // Now place the return values at the current base
+        for (Size i = 0; i < result_count && i < return_values.size(); ++i) {
+            if (current_base + i < stack_.size()) {
+                stack_[current_base + i] = std::move(return_values[i]);
+                VM_LOG_DEBUG("Placed return value[{}] at stack[{}]: {}",
+                             i,
+                             current_base + i,
+                             stack_[current_base + i].debug_string());
+            }
+        }
+
+        // Adjust stack top to just after the return values
+        stack_top_ = current_base + result_count;
+
+        VM_LOG_DEBUG(
+            "Returned from function with {} results, new stack_top_={}", result_count, stack_top_);
         return std::monostate{};
     }
 
@@ -497,6 +573,9 @@ namespace rangelua::runtime {
         }
 
         try {
+            // Save the original stack top before setting up the function call
+            Size original_stack_top = stack_top_;
+
             // For now, we'll create a simple bytecode function wrapper
             // In a full implementation, this would integrate with the bytecode system
             backend::BytecodeFunction bytecode_func;
@@ -555,13 +634,34 @@ namespace rangelua::runtime {
             // Collect results from stack
             std::vector<Value> results;
 
-            // After return_from_function, the return values should be at the stack base
-            // For now, we'll assume single return value at the correct position
-            // The return_from_function method should have placed the result at the right location
-            if (stack_top_ > 0) {
-                // The result should be at the top of the stack after return
-                results.push_back(stack_[stack_top_ - 1]);
-                VM_LOG_DEBUG("Collected return value: {}", results[0].debug_string());
+            // After return_from_function, the return values should be at the function's original
+            // stack base The function was called with a specific stack base, and
+            // return_from_function places the results starting at that base
+            Size function_base =
+                original_stack_top;  // This was the base where the function started
+
+            // The return_from_function method should have placed the results starting at
+            // function_base and adjusted stack_top_ to function_base + result_count
+            // Check for underflow to prevent infinite loops
+            Size result_count = 0;
+            if (stack_top_ >= function_base) {
+                result_count = stack_top_ - function_base;
+            } else {
+                VM_LOG_ERROR("Stack underflow detected: stack_top_={}, function_base={}",
+                             stack_top_,
+                             function_base);
+                // Assume 1 result (the function should return at least one value)
+                result_count = 1;
+            }
+
+            VM_LOG_DEBUG(
+                "Collecting {} return values from function_base {}", result_count, function_base);
+
+            for (Size i = 0; i < result_count; ++i) {
+                if (function_base + i < stack_.size()) {
+                    results.push_back(stack_[function_base + i]);
+                    VM_LOG_DEBUG("Collected return value[{}]: {}", i, results[i].debug_string());
+                }
             }
 
             return results;

@@ -24,8 +24,17 @@ namespace rangelua::runtime {
             const Value& right = context.stack_at(c);
 
             VM_LOG_DEBUG("{}: R[{}] := R[{}] {} R[{}]", op_name, a, b, op_name, c);
+            VM_LOG_DEBUG(
+                "{}: left value = {} (type: {})", op_name, left.debug_string(), left.type_name());
+            VM_LOG_DEBUG("{}: right value = {} (type: {})",
+                         op_name,
+                         right.debug_string(),
+                         right.type_name());
 
             Value result = operation(left, right);
+
+            VM_LOG_DEBUG(
+                "{}: result = {} (type: {})", op_name, result.debug_string(), result.type_name());
 
             // Check if the operation resulted in nil (error case)
             if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {

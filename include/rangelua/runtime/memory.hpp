@@ -563,6 +563,11 @@ namespace rangelua::runtime {
      */
     Result<GarbageCollector*> getGarbageCollector();
 
+    /**
+     * @brief Force cleanup of thread-local garbage collector
+     */
+    void cleanupThreadLocalGC();
+
 }  // namespace rangelua::runtime
 
 // Concept verification

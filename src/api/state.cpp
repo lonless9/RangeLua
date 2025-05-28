@@ -49,6 +49,10 @@ namespace rangelua::api {
     State::~State() {
         logger()->debug("Destroying RangeLua state");
         cleanup();
+
+        // Force cleanup of thread-local GC to prevent memory leaks
+        runtime::cleanupThreadLocalGC();
+
         logger()->debug("State destruction complete");
     }
 
@@ -256,10 +260,23 @@ namespace rangelua::api {
         // Step 2: Clear all global variables to release references
         logger()->debug("Clearing global variables");
         if (global_table) {
-            // Clear standard library functions
+            // Clear standard library functions and tables
             global_table->remove(runtime::Value("print"));
             global_table->remove(runtime::Value("type"));
             global_table->remove(runtime::Value("_VERSION"));
+            global_table->remove(runtime::Value("math"));
+            global_table->remove(runtime::Value("string"));
+            global_table->remove(runtime::Value("table"));
+
+            // Clear any remaining entries by iterating and removing
+            // Since runtime::Table doesn't have clear(), we'll iterate and remove
+            std::vector<runtime::Value> keys_to_remove;
+            for (const auto& [key, value] : *global_table) {
+                keys_to_remove.push_back(key);
+            }
+            for (const auto& key : keys_to_remove) {
+                global_table->remove(key);
+            }
         }
 
         // Step 3: Reset VM state to clean up environment and registry
@@ -270,10 +287,12 @@ namespace rangelua::api {
         logger()->debug("Triggering garbage collection");
         auto gc_result = runtime::getGarbageCollector();
         if (is_success(gc_result)) {
-            [[maybe_unused]] auto* gc = get_value(gc_result);
-            // Note: collect() is protected, so we'll rely on automatic cleanup
-            // during object destruction and reference counting
-            logger()->debug("Garbage collector available for cleanup");
+            auto* gc = get_value(gc_result);
+            // Cast to AdvancedGarbageCollector to access emergencyCollection
+            if (auto* advanced_gc = dynamic_cast<runtime::AdvancedGarbageCollector*>(gc)) {
+                advanced_gc->emergencyCollection();
+                logger()->debug("Emergency garbage collection completed");
+            }
         }
 
         logger()->debug("State cleanup completed");

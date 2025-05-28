@@ -1461,8 +1461,25 @@ namespace rangelua::backend {
         // Create a separate code generator for the nested function
         CodeGenerator nested_generator(nested_emitter);
 
+        // Transfer parameter declarations to the nested generator's scope
+        nested_generator.scope_manager().enter_scope();
+        for (const auto& param : node.parameters()) {
+            if (param.is_vararg) {
+                continue;  // Don't allocate register for vararg parameter
+            }
+
+            auto param_reg_result = nested_generator.register_allocator().allocate();
+            if (is_success(param_reg_result)) {
+                Register param_reg = get_value(param_reg_result);
+                nested_generator.scope_manager().declare_local(param.name, param_reg);
+            }
+        }
+
         // Generate code for function body using the nested generator
         node.body().accept(nested_generator);
+
+        // Exit the parameter scope in nested generator
+        nested_generator.scope_manager().exit_scope();
 
         // Ensure function ends with return instruction
         if (nested_emitter.instruction_count() == 0 ||
@@ -1771,16 +1788,7 @@ namespace rangelua::backend {
         // Create a new bytecode emitter for the function
         BytecodeEmitter nested_emitter("declared_function");
 
-        // Save current state and switch to nested function context
-        BytecodeEmitter* saved_emitter = &emitter_;
-        RegisterAllocator saved_allocator = register_allocator_;
-        register_allocator_ = RegisterAllocator(256);  // Fresh allocator for nested function
-        jump_manager_.set_emitter(&nested_emitter);
-
-        // Enter new scope for function parameters and body
-        scope_manager_.enter_scope();
-
-        // Declare parameters as local variables
+        // Count parameters for function metadata
         bool has_vararg = false;
         Size param_count = 0;
         for (const auto& param : node.parameters()) {
@@ -1788,21 +1796,35 @@ namespace rangelua::backend {
                 has_vararg = true;
                 continue;  // Don't allocate register for vararg parameter
             }
-
-            auto param_reg_result = register_allocator_.allocate();
-            if (is_success(param_reg_result)) {
-                Register param_reg = get_value(param_reg_result);
-                scope_manager_.declare_local(param.name, param_reg);
-                param_count++;
-            }
+            param_count++;
         }
 
         // Set up function metadata
         nested_emitter.set_parameter_count(param_count);
         nested_emitter.set_vararg(has_vararg);
 
-        // Generate code for function body
-        node.body().accept(*this);
+        // Create a separate code generator for the nested function
+        CodeGenerator nested_generator(nested_emitter);
+
+        // Transfer parameter declarations to the nested generator's scope
+        nested_generator.scope_manager().enter_scope();
+        for (const auto& param : node.parameters()) {
+            if (param.is_vararg) {
+                continue;  // Don't allocate register for vararg parameter
+            }
+
+            auto param_reg_result = nested_generator.register_allocator().allocate();
+            if (is_success(param_reg_result)) {
+                Register param_reg = get_value(param_reg_result);
+                nested_generator.scope_manager().declare_local(param.name, param_reg);
+            }
+        }
+
+        // Generate code for function body using the nested generator
+        node.body().accept(nested_generator);
+
+        // Exit the parameter scope in nested generator
+        nested_generator.scope_manager().exit_scope();
 
         // Ensure function ends with return instruction
         if (nested_emitter.instruction_count() == 0 ||
@@ -1812,15 +1834,10 @@ namespace rangelua::backend {
         }
 
         // Update stack size for nested function
-        nested_emitter.set_stack_size(register_allocator_.high_water_mark() + 1);
+        nested_emitter.set_stack_size(nested_generator.register_allocator().high_water_mark() + 1);
 
         // Get the generated function
         BytecodeFunction nested_function = nested_emitter.get_function();
-
-        // Restore previous state
-        register_allocator_ = saved_allocator;
-        jump_manager_.set_emitter(saved_emitter);
-        scope_manager_.exit_scope();
 
         // Convert BytecodeFunction to FunctionPrototype and add it
         FunctionPrototype prototype;

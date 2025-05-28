@@ -314,6 +314,19 @@ namespace rangelua::runtime {
         return default_gc.get();
     }
 
+    // Force cleanup of thread-local GC
+    void cleanupThreadLocalGC() {
+        // This function forces cleanup of thread-local GC by triggering collection
+        auto gc_result = getGarbageCollector();
+        if (is_success(gc_result)) {
+            auto* gc = get_value(gc_result);
+            // Cast to AdvancedGarbageCollector to access emergencyCollection
+            if (auto* advanced_gc = dynamic_cast<AdvancedGarbageCollector*>(gc)) {
+                advanced_gc->emergencyCollection();
+            }
+        }
+    }
+
     // Note: MemoryManagerScope removed as it relied on global state
     // Use dependency injection instead for memory manager management
 

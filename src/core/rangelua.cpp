@@ -122,6 +122,13 @@ namespace rangelua {
     }
 
     void cleanup() noexcept {
+        // Force cleanup of thread-local GC before general cleanup
+        try {
+            runtime::cleanupThreadLocalGC();
+        } catch (...) {
+            // Ignore errors during cleanup
+        }
+
         get_initialization_context().cleanup();
     }
 
