@@ -151,26 +151,33 @@ namespace rangelua::stdlib::basic {
 
         auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
 
-        // For now, implement a simple version that just gets the next key-value pair
-        // This is a simplified implementation - a full implementation would need
-        // to iterate through the table's internal structure
-
-        // If key is nil, start from the beginning
+        // If key is nil, return the first key-value pair
         if (key_value.is_nil()) {
-            // For simplicity, try to get the first numeric key
-            for (Int i = 1; i <= 100; ++i) {  // Arbitrary limit for demo
-                runtime::Value test_key(static_cast<Number>(i));
-                runtime::Value test_value = table->get(test_key);
-                if (!test_value.is_nil()) {
-                    return {test_key, test_value};
-                }
+            // Get the first element using iterator
+            auto it = table->begin();
+            if (it != table->end()) {
+                auto [key, value] = *it;
+                return {key, value};
             }
-            return {};  // No entries found
+            return {};  // Empty table
         }
 
-        // For non-nil keys, this is a simplified implementation
-        // A full implementation would need proper table iteration
-        return {};  // End of iteration for now
+        // Find the current key and return the next one
+        bool found_current = false;
+        for (const auto& [current_key, current_value] : *table) {
+            if (found_current) {
+                // Return the next key-value pair
+                return {current_key, current_value};
+            }
+
+            // Check if this is the key we're looking for
+            if (current_key == key_value) {
+                found_current = true;
+            }
+        }
+
+        // End of iteration - key not found or was the last key
+        return {};
     }
 
     std::vector<runtime::Value> pairs(const std::vector<runtime::Value>& args) {
@@ -194,6 +201,7 @@ namespace rangelua::stdlib::basic {
         globals->set(runtime::Value("type"), runtime::value_factory::function(type));
         globals->set(runtime::Value("ipairs"), runtime::value_factory::function(ipairs));
         globals->set(runtime::Value("pairs"), runtime::value_factory::function(pairs));
+        globals->set(runtime::Value("next"), runtime::value_factory::function(next));
     }
 
 }  // namespace rangelua::stdlib::basic
