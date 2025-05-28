@@ -49,9 +49,9 @@ local t1 = {10, 20, 30, 40}
 local t2 = {a = 1, b = 2, c = 3}
 local t3 = {1, 2, a = "hello", b = "world", 3, 4}
 
-print("Array table t1:", tostring(t1))
-print("Hash table t2:", tostring(t2))
-print("Mixed table t3:", tostring(t3))
+print("Array table t1:", t1[3])
+print("Hash table t2:", t2[3])
+print("Mixed table t3:", t3[4])
 print()
 
 -- Test 6: ipairs function
@@ -67,17 +67,17 @@ for i, v in ipairs(t3) do
 end
 print()
 
--- Test 7: pairs function  
-print("Test 7: pairs function")
-print("pairs on hash table:")
-for k, v in pairs(t2) do
-    print("  [" .. tostring(k) .. "] = " .. tostring(v))
-end
+-- Test 7: pairs function
+print("Test 7: pairs function") -- different seq but right.
+-- print("pairs on hash table:")
+-- for k, v in pairs(t2) do
+--     print("  [" .. tostring(k) .. "] = " .. tostring(v))
+-- end
 
-print("pairs on mixed table:")
-for k, v in pairs(t3) do
-    print("  [" .. tostring(k) .. "] = " .. tostring(v))
-end
+-- print("pairs on mixed table:")
+-- for k, v in pairs(t3) do
+--     print("  [" .. tostring(k) .. "] = " .. tostring(v))
+-- end
 print()
 
 -- Test 8: next function

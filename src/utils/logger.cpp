@@ -105,6 +105,17 @@ namespace rangelua::utils {
         if (it != module_loggers_.end()) {
             it->second->set_level(level);
         }
+
+        // If we're enabling a module and sinks are set to "off", we need to enable sinks
+        // to allow module-specific logging to work
+        if (level != LogLevel::off) {
+            for (auto& sink : sinks_) {
+                if (sink->level() == LogLevel::off) {
+                    // Set sink to trace level to allow all module-specific logging
+                    sink->set_level(LogLevel::trace);
+                }
+            }
+        }
     }
 
     Logger::LogLevel Logger::get_module_level(const String& module_name) {
@@ -189,6 +200,13 @@ namespace rangelua::utils {
 
     std::vector<std::string> Logger::get_available_modules() {
         return {"lexer", "parser", "codegen", "optimizer", "vm", "memory", "gc"};
+    }
+
+    void Logger::enable_all_modules(LogLevel level) {
+        auto modules = get_available_modules();
+        for (const auto& module : modules) {
+            set_module_level(module, level);
+        }
     }
 
     namespace loggers {

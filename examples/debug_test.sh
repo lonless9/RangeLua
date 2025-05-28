@@ -20,17 +20,19 @@ show_usage() {
     echo "  -m, --module <module>    Enable debug logging for specific module"
     echo "                          (lexer, parser, codegen, optimizer, vm, memory, gc)"
     echo "  -l, --log-level <level>  Set overall log level (trace, debug, info, warn, error, off)"
-    echo "  -a, --all-debug         Enable debug logging for all modules"
+    echo "                          When used alone, enables all modules at specified level"
+    echo "  -a, --all-debug         Enable debug logging for all modules (same as -l debug)"
     echo "  -c, --compare           Compare output with standard Lua 5.5"
     echo "  -v, --verbose           Show detailed output"
     echo "  -h, --help              Show this help"
     echo ""
     echo "Examples:"
-    echo "  $0 examples/01_basic/hello.lua"
-    echo "  $0 -m parser examples/02_types/numbers.lua"
-    echo "  $0 -a examples/04_arithmetic/basic_math.lua"
-    echo "  $0 -l debug examples/06_control/if_else.lua"
-    echo "  $0 -c examples/stdlib/test_basic.lua"
+    echo "  $0 examples/stdlib/test_basic.lua                    # Clean execution (no logs)"
+    echo "  $0 -m parser examples/stdlib/test_basic.lua          # Only parser debug logs"
+    echo "  $0 -l debug examples/stdlib/test_basic.lua           # All modules debug logs"
+    echo "  $0 -a examples/stdlib/test_basic.lua                 # All modules debug logs"
+    echo "  $0 -c examples/stdlib/test_basic.lua                 # Compare with standard Lua"
+    echo "  $0 -c -v examples/stdlib/test_basic.lua              # Compare with verbose output"
 }
 
 # Default values
@@ -118,15 +120,22 @@ echo -e "${GREEN}Build successful${NC}"
 # Prepare command arguments
 CMD_ARGS=()
 
-if [ "$ALL_DEBUG" = true ]; then
-    CMD_ARGS+=(--module-log "lexer:debug,parser:debug,codegen:debug,optimizer:debug,vm:debug,memory:debug,gc:debug")
-elif [ -n "$MODULE" ]; then
-    CMD_ARGS+=(--module-log "${MODULE}:debug")
-fi
+# New logging activation strategy:
+# 1. If specific module is requested, use explicit module logging
+# 2. If ALL_DEBUG or LOG_LEVEL is specified, use the new automatic all-module activation
+# 3. If nothing specified, keep clean (no logging)
 
-if [ -n "$LOG_LEVEL" ]; then
+if [ -n "$MODULE" ]; then
+    # Explicit module logging: activate only specified module
+    CMD_ARGS+=(--module-log "${MODULE}:debug")
+elif [ "$ALL_DEBUG" = true ]; then
+    # All-module logging via log level (new strategy)
+    CMD_ARGS+=(--log-level "debug")
+elif [ -n "$LOG_LEVEL" ]; then
+    # All-module logging at specified level (new strategy)
     CMD_ARGS+=(--log-level "$LOG_LEVEL")
 fi
+# If none of the above, no logging args = clean output
 
 CMD_ARGS+=("$TEST_FILE")
 

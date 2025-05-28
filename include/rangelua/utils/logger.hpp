@@ -93,6 +93,11 @@ namespace rangelua::utils {
          */
         static std::vector<std::string> get_available_modules();
 
+        /**
+         * @brief Enable logging for all available modules at the specified level
+         */
+        static void enable_all_modules(LogLevel level);
+
     private:
         static std::shared_ptr<spdlog::logger> default_logger_;
         static std::vector<spdlog::sink_ptr> sinks_;

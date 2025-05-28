@@ -78,13 +78,21 @@ void print_help() {
     std::cout << "  -d, --debug         Enable debug mode\n";
     std::cout
         << "  --log-level LEVEL   Set global log level (trace, debug, info, warn, error, off)\n";
+    std::cout << "                      When specified without --module-log, enables all modules\n";
     std::cout << "  --module-log MOD:LVL Set module-specific log level (e.g., parser:debug)\n";
+    std::cout
+        << "                      When specified, only enables explicitly mentioned modules\n";
     std::cout << "  --log-file FILE     Write logs to file\n\n";
     std::cout << "Available modules: lexer, parser, codegen, optimizer, vm, memory, gc\n\n";
+    std::cout << "Logging behavior:\n";
+    std::cout << "  - Explicit modules: --module-log \"parser:debug\" (only parser logs)\n";
+    std::cout << "  - All modules: --log-level debug (all modules at debug level)\n";
+    std::cout << "  - Clean output: --log-level off or no logging args\n\n";
     std::cout << "Examples:\n";
-    std::cout << "  rangelua script.lua     # Execute script\n";
-    std::cout << "  rangelua -i             # Interactive mode\n";
-    std::cout << "  rangelua --debug -i     # Interactive mode with debugging\n";
+    std::cout << "  rangelua script.lua                    # Execute script (no logs)\n";
+    std::cout << "  rangelua --log-level debug script.lua  # All modules debug logging\n";
+    std::cout << "  rangelua --module-log \"parser:debug\" script.lua  # Only parser debug\n";
+    std::cout << "  rangelua -i                            # Interactive mode\n";
 }
 
 /**
@@ -171,14 +179,20 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // Initialize logging
+    // Initialize logging with new activation strategy
     auto log_level = utils::Logger::string_to_log_level(opts.log_level);
     utils::Logger::initialize("rangelua", log_level);
 
-    // Configure module-specific log levels
+    // Apply new logging activation strategy
     if (!opts.module_log_levels.empty()) {
+        // Explicit module logging: activate only specified modules
         utils::Logger::configure_from_args(opts.module_log_levels);
+    } else if (log_level != utils::Logger::LogLevel::off) {
+        // Default all-module logging: when log level is specified but no modules are explicit
+        utils::Logger::enable_all_modules(log_level);
     }
+    // If log_level is "off" or no logging args provided, keep all modules disabled (default
+    // behavior)
 
     if (!opts.log_file.empty()) {
         utils::Logger::add_file_sink(opts.log_file);
