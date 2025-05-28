@@ -1430,7 +1430,7 @@ namespace rangelua::backend {
 
         // Save current state and switch to nested function context
         BytecodeEmitter* saved_emitter = &emitter_;
-        RegisterAllocator saved_allocator = std::move(register_allocator_);
+        RegisterAllocator saved_allocator = register_allocator_;
         register_allocator_ = RegisterAllocator(256);  // Fresh allocator for nested function
         jump_manager_.set_emitter(&nested_emitter);
 
@@ -1475,14 +1475,27 @@ namespace rangelua::backend {
         BytecodeFunction nested_function = nested_emitter.get_function();
 
         // Restore previous state
-        register_allocator_ = std::move(saved_allocator);
+        register_allocator_ = saved_allocator;
         jump_manager_.set_emitter(saved_emitter);
         scope_manager_.exit_scope();
 
-        // Add the function as a constant and create closure
-        Size function_const_index = emitter_.add_constant(ConstantValue{String{"<function>"}});
+        // Convert BytecodeFunction to FunctionPrototype and add it
+        FunctionPrototype prototype;
+        prototype.name = nested_function.name;
+        prototype.instructions = std::move(nested_function.instructions);
+        prototype.constants = std::move(nested_function.constants);
+        prototype.locals = std::move(nested_function.locals);
+        prototype.upvalue_descriptors = std::move(nested_function.upvalue_descriptors);
+        prototype.parameter_count = nested_function.parameter_count;
+        prototype.stack_size = nested_function.stack_size;
+        prototype.is_vararg = nested_function.is_vararg;
+        prototype.line_info = std::move(nested_function.line_info);
+        prototype.source_name = std::move(nested_function.source_name);
+
+        // Add the function prototype and create closure
+        Size prototype_index = emitter_.add_prototype(prototype);
         emitter_.emit_abx(
-            OpCode::OP_CLOSURE, result_reg, static_cast<std::uint32_t>(function_const_index));
+            OpCode::OP_CLOSURE, result_reg, static_cast<std::uint32_t>(prototype_index));
 
         // Handle upvalues for the closure
         // For now, we'll implement a simplified upvalue system
@@ -1614,9 +1627,94 @@ namespace rangelua::backend {
         // Standard handling for other cases
         std::vector<ExpressionDesc> value_expressions;
         for (const auto& value : values) {
-            value->accept(*this);
-            if (current_expression_.has_value()) {
-                value_expressions.push_back(current_expression_.value());
+            // Special handling for function expressions in local declarations
+            if (const auto* func_expr =
+                    dynamic_cast<const frontend::FunctionExpression*>(value.get())) {
+                // Handle function expression specially to avoid generating function body in current
+                // context
+                CODEGEN_LOG_DEBUG("Generating local function expression");
+
+                // Create a new bytecode emitter for the function
+                BytecodeEmitter nested_emitter("local_function");
+
+                // Create a separate code generator for the nested function
+                CodeGenerator nested_generator(nested_emitter);
+
+                // Declare parameters as local variables in the nested generator
+                bool has_vararg = false;
+                Size param_count = 0;
+                for (const auto& param : func_expr->parameters()) {
+                    if (param.is_vararg) {
+                        has_vararg = true;
+                        continue;  // Don't allocate register for vararg parameter
+                    }
+
+                    auto param_reg_result = nested_generator.register_allocator().allocate();
+                    if (is_success(param_reg_result)) {
+                        Register param_reg = get_value(param_reg_result);
+                        nested_generator.scope_manager().declare_local(param.name, param_reg);
+                        param_count++;
+                    }
+                }
+
+                // Set up function metadata
+                nested_emitter.set_parameter_count(param_count);
+                nested_emitter.set_vararg(has_vararg);
+
+                // Generate code for function body using the nested generator
+                func_expr->body().accept(nested_generator);
+
+                // Ensure function ends with return instruction
+                if (nested_emitter.instruction_count() == 0 ||
+                    InstructionEncoder::decode_opcode(nested_emitter.instructions().back()) !=
+                        OpCode::OP_RETURN) {
+                    nested_emitter.emit_abc(OpCode::OP_RETURN, 0, 1, 0);  // Return with no values
+                }
+
+                // Update stack size for nested function
+                nested_emitter.set_stack_size(
+                    nested_generator.register_allocator().high_water_mark() + 1);
+
+                // Get the generated function
+                BytecodeFunction nested_function = nested_emitter.get_function();
+
+                // Convert BytecodeFunction to FunctionPrototype and add it
+                FunctionPrototype prototype;
+                prototype.name = nested_function.name;
+                prototype.instructions = std::move(nested_function.instructions);
+                prototype.constants = std::move(nested_function.constants);
+                prototype.locals = std::move(nested_function.locals);
+                prototype.upvalue_descriptors = std::move(nested_function.upvalue_descriptors);
+                prototype.parameter_count = nested_function.parameter_count;
+                prototype.stack_size = nested_function.stack_size;
+                prototype.is_vararg = nested_function.is_vararg;
+                prototype.line_info = std::move(nested_function.line_info);
+                prototype.source_name = std::move(nested_function.source_name);
+
+                // Allocate register for the closure
+                auto closure_reg_result = register_allocator_.allocate();
+                if (is_error(closure_reg_result)) {
+                    CODEGEN_LOG_ERROR("Failed to allocate register for function closure");
+                    continue;
+                }
+                Register closure_reg = get_value(closure_reg_result);
+
+                // Add function prototype and create closure
+                Size prototype_index = emitter_.add_prototype(prototype);
+                emitter_.emit_abx(
+                    OpCode::OP_CLOSURE, closure_reg, static_cast<std::uint32_t>(prototype_index));
+
+                // Create expression descriptor for the closure
+                ExpressionDesc closure_expr;
+                closure_expr.kind = ExpressionKind::NONRELOC;
+                closure_expr.u.info = closure_reg;
+                value_expressions.push_back(closure_expr);
+            } else {
+                // Normal expression handling
+                value->accept(*this);
+                if (current_expression_.has_value()) {
+                    value_expressions.push_back(current_expression_.value());
+                }
             }
         }
 
@@ -1666,7 +1764,7 @@ namespace rangelua::backend {
 
         // Save current state and switch to nested function context
         BytecodeEmitter* saved_emitter = &emitter_;
-        RegisterAllocator saved_allocator = std::move(register_allocator_);
+        RegisterAllocator saved_allocator = register_allocator_;
         register_allocator_ = RegisterAllocator(256);  // Fresh allocator for nested function
         jump_manager_.set_emitter(&nested_emitter);
 
@@ -1711,13 +1809,27 @@ namespace rangelua::backend {
         BytecodeFunction nested_function = nested_emitter.get_function();
 
         // Restore previous state
-        register_allocator_ = std::move(saved_allocator);
+        register_allocator_ = saved_allocator;
         jump_manager_.set_emitter(saved_emitter);
         scope_manager_.exit_scope();
 
-        // Add function as constant and create closure
-        Size function_const_index = emitter_.add_constant(ConstantValue{String{"<declared_function>"}});
-        emitter_.emit_abx(OpCode::OP_CLOSURE, func_reg, static_cast<std::uint32_t>(function_const_index));
+        // Convert BytecodeFunction to FunctionPrototype and add it
+        FunctionPrototype prototype;
+        prototype.name = nested_function.name;
+        prototype.instructions = std::move(nested_function.instructions);
+        prototype.constants = std::move(nested_function.constants);
+        prototype.locals = std::move(nested_function.locals);
+        prototype.upvalue_descriptors = std::move(nested_function.upvalue_descriptors);
+        prototype.parameter_count = nested_function.parameter_count;
+        prototype.stack_size = nested_function.stack_size;
+        prototype.is_vararg = nested_function.is_vararg;
+        prototype.line_info = std::move(nested_function.line_info);
+        prototype.source_name = std::move(nested_function.source_name);
+
+        // Add function prototype and create closure
+        Size prototype_index = emitter_.add_prototype(prototype);
+        emitter_.emit_abx(
+            OpCode::OP_CLOSURE, func_reg, static_cast<std::uint32_t>(prototype_index));
 
         // Handle assignment based on whether it's local or global
         if (node.is_local()) {

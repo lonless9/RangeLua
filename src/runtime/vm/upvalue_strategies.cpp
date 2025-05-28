@@ -62,6 +62,30 @@ namespace rangelua::runtime {
         auto function = makeGCObject<Function>(prototype.instructions, prototype.parameter_count);
         function->makeClosure();  // Mark as closure
 
+        // Copy constants from prototype to function
+        for (const auto& constant : prototype.constants) {
+            // Convert ConstantValue to Value
+            Value value = std::visit(
+                [](const auto& val) -> Value {
+                    using T = std::decay_t<decltype(val)>;
+                    if constexpr (std::is_same_v<T, std::monostate>) {
+                        return Value{};
+                    } else if constexpr (std::is_same_v<T, bool>) {
+                        return Value(val);
+                    } else if constexpr (std::is_same_v<T, Number>) {
+                        return Value(val);
+                    } else if constexpr (std::is_same_v<T, Int>) {
+                        return Value(val);
+                    } else if constexpr (std::is_same_v<T, String>) {
+                        return Value(val);
+                    } else {
+                        return Value{};
+                    }
+                },
+                constant);
+            function->addConstant(value);
+        }
+
         // Create upvalues based on the prototype's upvalue descriptors
         for (const auto& desc : prototype.upvalue_descriptors) {
             GCPtr<Upvalue> upvalue;
@@ -79,6 +103,15 @@ namespace rangelua::runtime {
             }
 
             function->addUpvalue(upvalue);
+        }
+
+        // If the function has no upvalues, add _ENV as upvalue[0] (Lua 5.5 semantics)
+        if (prototype.upvalue_descriptors.empty()) {
+            // Get _ENV from the current function's upvalue[0]
+            Value env_value = context.get_upvalue(0);
+            auto env_upvalue = makeGCObject<Upvalue>(env_value);
+            function->addUpvalue(env_upvalue);
+            VM_LOG_DEBUG("CLOSURE: Added _ENV as upvalue[0] for function without upvalues");
         }
 
         // Store the closure in the register

@@ -560,6 +560,22 @@ namespace rangelua::backend {
             }
         }
 
+        if (!function.prototypes.empty()) {
+            oss << "Prototypes:\n";
+            for (Size i = 0; i < function.prototypes.size(); ++i) {
+                oss << "  P" << i << ": " << function.prototypes[i].name
+                    << " (params: " << function.prototypes[i].parameter_count
+                    << ", stack: " << function.prototypes[i].stack_size << ")\n";
+                // Optionally show prototype instructions
+                oss << "    Instructions:\n";
+                for (Size j = 0; j < function.prototypes[i].instructions.size(); ++j) {
+                    oss << "      "
+                        << disassemble_instruction(function.prototypes[i].instructions[j], j)
+                        << "\n";
+                }
+            }
+        }
+
         return oss.str();
     }
 

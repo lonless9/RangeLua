@@ -315,30 +315,45 @@ namespace rangelua::runtime {
     }
 
     Value VirtualMachine::get_constant(std::uint16_t index) const {
-        if (!call_stack_.empty() && call_stack_.back().function) {
-            const auto& constants = call_stack_.back().function->constants;
-            if (index < constants.size()) {
-                const auto& constant = constants[index];
+        if (!call_stack_.empty()) {
+            const auto& frame = call_stack_.back();
 
-                // Convert ConstantValue to Value
-                return std::visit(
-                    [](const auto& val) -> Value {
-                        using T = std::decay_t<decltype(val)>;
-                        if constexpr (std::is_same_v<T, std::monostate>) {
-                            return Value{};
-                        } else if constexpr (std::is_same_v<T, bool>) {
-                            return Value(val);
-                        } else if constexpr (std::is_same_v<T, Number>) {
-                            return Value(val);
-                        } else if constexpr (std::is_same_v<T, Int>) {
-                            return Value(val);
-                        } else if constexpr (std::is_same_v<T, String>) {
-                            return Value(val);
-                        } else {
-                            return Value{};
-                        }
-                    },
-                    constant);
+            // First try to get constants from closure (for user-defined functions)
+            if (frame.closure) {
+                const auto& constants = frame.closure->constants();
+                if (index < constants.size()) {
+                    VM_LOG_DEBUG("Getting constant[{}] from closure", index);
+                    return constants[index];
+                }
+            }
+
+            // Fallback to BytecodeFunction constants (for main chunk)
+            if (frame.function) {
+                const auto& constants = frame.function->constants;
+                if (index < constants.size()) {
+                    const auto& constant = constants[index];
+
+                    // Convert ConstantValue to Value
+                    VM_LOG_DEBUG("Getting constant[{}] from BytecodeFunction", index);
+                    return std::visit(
+                        [](const auto& val) -> Value {
+                            using T = std::decay_t<decltype(val)>;
+                            if constexpr (std::is_same_v<T, std::monostate>) {
+                                return Value{};
+                            } else if constexpr (std::is_same_v<T, bool>) {
+                                return Value(val);
+                            } else if constexpr (std::is_same_v<T, Number>) {
+                                return Value(val);
+                            } else if constexpr (std::is_same_v<T, Int>) {
+                                return Value(val);
+                            } else if constexpr (std::is_same_v<T, String>) {
+                                return Value(val);
+                            } else {
+                                return Value{};
+                            }
+                        },
+                        constant);
+                }
             }
         }
 
@@ -355,15 +370,42 @@ namespace rangelua::runtime {
                 return ErrorCode::TYPE_ERROR;
             }
 
-            // Use the Value's call method which handles different function types
-            auto call_result = function.call(args);
-            if (is_error(call_result)) {
-                VM_LOG_ERROR("Function call failed");
-                return get_error(call_result);
+            // Get the function pointer from the Value
+            auto function_result = function.to_function();
+            if (is_error(function_result)) {
+                VM_LOG_ERROR("Failed to extract function from value");
+                return get_error(function_result);
             }
 
-            results = get_value(call_result);
-            return std::monostate{};
+            auto function_ptr = get_value(function_result);
+
+            // Handle C functions directly
+            if (function_ptr->isCFunction()) {
+                VM_LOG_DEBUG("Calling C function with {} arguments", args.size());
+                try {
+                    results = function_ptr->call(args);
+                    return std::monostate{};
+                } catch (const std::exception& e) {
+                    VM_LOG_ERROR("C function call failed: {}", e.what());
+                    return ErrorCode::RUNTIME_ERROR;
+                }
+            }
+
+            // Handle Lua functions through VM execution
+            if (function_ptr->isLuaFunction() || function_ptr->isClosure()) {
+                VM_LOG_DEBUG("Calling Lua function/closure with {} arguments", args.size());
+                auto call_result = call_lua_function(function_ptr, args);
+                if (is_error(call_result)) {
+                    VM_LOG_ERROR("Lua function call failed");
+                    return get_error(call_result);
+                }
+                results = get_value(call_result);
+                return std::monostate{};
+            }
+
+            VM_LOG_ERROR("Unknown function type");
+            return ErrorCode::TYPE_ERROR;
+
         } catch (const Exception& e) {
             VM_LOG_ERROR("Exception in function call: {}", e.what());
             return e.code();
@@ -376,6 +418,10 @@ namespace rangelua::runtime {
     Value VirtualMachine::get_upvalue(UpvalueIndex index) const {
         if (!call_stack_.empty() && call_stack_.back().function) {
             const auto& frame = call_stack_.back();
+
+            VM_LOG_DEBUG("GETUPVAL: frame.closure = {}, upvalue count = {}",
+                         frame.closure ? "valid" : "null",
+                         frame.closure ? frame.closure->upvalueCount() : 0);
 
             // Check if we have a closure with upvalues
             if (frame.closure && index < frame.closure->upvalueCount()) {
@@ -466,6 +512,12 @@ namespace rangelua::runtime {
                 return std::get<ErrorCode>(setup_result);
             }
 
+            // Set the closure in the call frame so constants and upvalues can be accessed
+            if (!call_stack_.empty()) {
+                call_stack_.back().closure = function;
+                VM_LOG_DEBUG("Setting up closure with {} upvalues", function->upvalueCount());
+            }
+
             // Push arguments onto stack
             for (const auto& arg : args) {
                 push(arg);
@@ -478,14 +530,41 @@ namespace rangelua::runtime {
                 // For now, we'll just log this
             }
 
-            // Execute the function
-            auto exec_result = execute(bytecode_func, args);
-            if (is_error(exec_result)) {
-                VM_LOG_ERROR("Failed to execute Lua function");
-                return get_error(exec_result);
+            // Execute the function directly without calling execute() to avoid double setup
+            state_ = VMState::Running;
+            VM_LOG_DEBUG("VM state set to Running, starting execution loop");
+
+            // Save the initial call stack size to know when our function returns
+            Size initial_call_stack_size = call_stack_.size();
+
+            // Main execution loop for this function
+            size_t instruction_count = 0;
+            while (state_ == VMState::Running && call_stack_.size() >= initial_call_stack_size) {
+                auto step_result = step();
+                instruction_count++;
+
+                if (std::holds_alternative<ErrorCode>(step_result)) {
+                    VM_LOG_ERROR("Failed to execute Lua function");
+                    return std::get<ErrorCode>(step_result);
+                }
             }
 
-            return get_value(exec_result);
+            VM_LOG_DEBUG("Lua function execution completed after {} instructions",
+                         instruction_count);
+
+            // Collect results from stack
+            std::vector<Value> results;
+
+            // After return_from_function, the return values should be at the stack base
+            // For now, we'll assume single return value at the correct position
+            // The return_from_function method should have placed the result at the right location
+            if (stack_top_ > 0) {
+                // The result should be at the top of the stack after return
+                results.push_back(stack_[stack_top_ - 1]);
+                VM_LOG_DEBUG("Collected return value: {}", results[0].debug_string());
+            }
+
+            return results;
 
         } catch (const std::exception& e) {
             VM_LOG_ERROR("Exception in Lua function call: {}", e.what());

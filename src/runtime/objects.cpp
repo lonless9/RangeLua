@@ -349,10 +349,18 @@ namespace rangelua::runtime {
     }
 
     const std::vector<Instruction>& Function::bytecode() const {
-        if (!isLuaFunction()) {
-            throw std::runtime_error("Function is not a Lua function");
+        if (!isLuaFunction() && !isClosure()) {
+            throw std::runtime_error("Function is not a Lua function or closure");
         }
         return bytecode_;
+    }
+
+    void Function::addConstant(const Value& constant) {
+        constants_.push_back(constant);
+    }
+
+    const std::vector<Value>& Function::constants() const {
+        return constants_;
     }
 
     bool Function::isClosure() const noexcept {

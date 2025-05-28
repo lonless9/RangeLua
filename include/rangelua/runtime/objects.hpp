@@ -201,6 +201,10 @@ namespace rangelua::runtime {
         [[nodiscard]] bool isLuaFunction() const noexcept;
         [[nodiscard]] const std::vector<Instruction>& bytecode() const;
 
+        // Constant management
+        void addConstant(const Value& constant);
+        [[nodiscard]] const std::vector<Value>& constants() const;
+
         // Closure support
         [[nodiscard]] bool isClosure() const noexcept;
         void makeClosure();
