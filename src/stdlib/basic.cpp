@@ -173,6 +173,7 @@ namespace rangelua::stdlib::basic {
             // Check if this is the key we're looking for
             if (current_key == key_value) {
                 found_current = true;
+                // Continue to next iteration to get the next key-value pair
             }
         }
 
@@ -235,8 +236,8 @@ namespace rangelua::stdlib::basic {
                 result = "nil";
             }
         } else {
-            // For other types, use type name with address
-            result = value.type_name();
+            // For other types (tables, functions, etc.), use debug string with address
+            result = value.debug_string();
         }
 
         return {runtime::Value(result)};
@@ -272,6 +273,13 @@ namespace rangelua::stdlib::basic {
 
                 try {
                     if (base == 10) {
+                        // Check for hexadecimal prefix in base 10 mode (Lua 5.5 behavior)
+                        if (str.length() > 2 && str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
+                            // Parse as hexadecimal
+                            Int int_val = std::stoll(str, nullptr, 16);
+                            return {runtime::Value(static_cast<Number>(int_val))};
+                        }
+
                         // Try integer first
                         if (str.find('.') == std::string::npos &&
                             str.find('e') == std::string::npos &&
@@ -302,8 +310,27 @@ namespace rangelua::stdlib::basic {
             return {runtime::Value()};  // nil
         }
 
-        // TODO: Implement metatable support when available
-        return {runtime::Value()};  // nil for now
+        const auto& value = args[0];
+
+        if (value.is_table()) {
+            const auto& table_ptr = value.as_table();
+            if (table_ptr) {
+                auto metatable = table_ptr->metatable();
+                if (metatable) {
+                    return {runtime::Value(metatable)};
+                }
+            }
+        } else if (value.is_userdata()) {
+            const auto& userdata_ptr = value.as_userdata();
+            if (userdata_ptr) {
+                auto metatable = userdata_ptr->metatable();
+                if (metatable) {
+                    return {runtime::Value(metatable)};
+                }
+            }
+        }
+
+        return {runtime::Value()};  // nil
     }
 
     std::vector<runtime::Value> setmetatable(const std::vector<runtime::Value>& args) {
@@ -311,8 +338,32 @@ namespace rangelua::stdlib::basic {
             return {runtime::Value()};  // nil
         }
 
-        // TODO: Implement metatable support when available
-        return {args[0]};  // Return the table for now
+        const auto& table_value = args[0];
+        const auto& metatable_value = args[1];
+
+        if (!table_value.is_table()) {
+            // In Lua, setmetatable only works on tables
+            return {runtime::Value()};  // nil
+        }
+
+        const auto& table_ptr = table_value.as_table();
+        if (!table_ptr) {
+            return {runtime::Value()};  // nil
+        }
+
+        if (metatable_value.is_nil()) {
+            // Remove metatable
+            table_ptr->setMetatable(runtime::GCPtr<runtime::Table>{});
+        } else if (metatable_value.is_table()) {
+            // Set metatable
+            const auto& metatable_ptr = metatable_value.as_table();
+            table_ptr->setMetatable(metatable_ptr);
+        } else {
+            // Invalid metatable type
+            return {runtime::Value()};  // nil
+        }
+
+        return {table_value};  // Return the table
     }
 
     std::vector<runtime::Value> rawget(const std::vector<runtime::Value>& args) {
@@ -386,7 +437,8 @@ namespace rangelua::stdlib::basic {
             auto table_result = value.to_table();
             if (std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_result)) {
                 auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
-                return {runtime::Value(static_cast<Number>(table->totalSize()))};
+                // rawlen should only count the array part, not the hash part
+                return {runtime::Value(static_cast<Number>(table->arraySize()))};
             }
         }
 
@@ -421,9 +473,9 @@ namespace rangelua::stdlib::basic {
                     index = static_cast<int>(args.size()) + index;
                 }
 
-                if (index >= 1 && index < static_cast<int>(args.size())) {
+                if (index >= 1 && index <= static_cast<int>(args.size())) {
                     std::vector<runtime::Value> result;
-                    for (size_t i = static_cast<size_t>(index); i < args.size(); ++i) {
+                    for (auto i = static_cast<size_t>(index); i < args.size(); ++i) {
                         result.push_back(args[i]);
                     }
                     return result;

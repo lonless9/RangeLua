@@ -53,7 +53,7 @@ namespace rangelua::runtime {
 
         // Metatable support
         void setMetatable(GCPtr<Table> metatable);
-        [[nodiscard]] GCPtr<Table> metatable();
+        [[nodiscard]] GCPtr<Table> metatable() const;
 
         // Iteration support
         class Iterator {

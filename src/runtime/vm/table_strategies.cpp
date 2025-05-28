@@ -4,9 +4,10 @@
  * @version 0.1.0
  */
 
-#include <rangelua/runtime/vm/table_strategies.hpp>
 #include <rangelua/backend/bytecode.hpp>
+#include <rangelua/runtime/metamethod.hpp>
 #include <rangelua/runtime/value.hpp>
+#include <rangelua/runtime/vm/table_strategies.hpp>
 #include <rangelua/utils/logger.hpp>
 
 namespace rangelua::runtime {
@@ -35,11 +36,27 @@ namespace rangelua::runtime {
         VM_LOG_DEBUG("GETTABLE: R[{}] := R[{}][R[{}]]", a, b, c);
 
         if (!table.is_table()) {
-            VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
-            return ErrorCode::TYPE_ERROR;
+            // Try __index metamethod for non-table values
+            auto mm_result = MetamethodSystem::try_binary_metamethod(table, key, Metamethod::INDEX);
+            if (is_error(mm_result)) {
+                VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+            context.stack_at(a) = get_value(mm_result);
+            return std::monostate{};
         }
 
+        // Get value from table
         Value result = table.get(key);
+
+        // If result is nil and table has __index metamethod, try it
+        if (result.is_nil() && MetamethodSystem::has_metamethod(table, Metamethod::INDEX)) {
+            auto mm_result = MetamethodSystem::try_binary_metamethod(table, key, Metamethod::INDEX);
+            if (!is_error(mm_result)) {
+                result = get_value(mm_result);
+            }
+        }
+
         context.stack_at(a) = std::move(result);
         return std::monostate{};
     }
@@ -57,10 +74,29 @@ namespace rangelua::runtime {
         VM_LOG_DEBUG("SETTABLE: R[{}][R[{}]] := R[{}]", a, b, c);
 
         if (!table.is_table()) {
-            VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
-            return ErrorCode::TYPE_ERROR;
+            // Try __newindex metamethod for non-table values
+            auto mm_result =
+                MetamethodSystem::try_binary_metamethod(table, key, Metamethod::NEWINDEX);
+            if (is_error(mm_result)) {
+                VM_LOG_ERROR("Attempt to index a {} value", table.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+            return std::monostate{};
         }
 
+        // Check if key exists in table
+        Value existing = table.get(key);
+
+        // If key doesn't exist and table has __newindex metamethod, try it
+        if (existing.is_nil() && MetamethodSystem::has_metamethod(table, Metamethod::NEWINDEX)) {
+            auto mm_result = MetamethodSystem::call_metamethod(
+                MetamethodSystem::get_metamethod(table, Metamethod::NEWINDEX), {table, key, value});
+            if (!is_error(mm_result)) {
+                return std::monostate{};
+            }
+        }
+
+        // Normal table assignment
         table.set(key, value);
         return std::monostate{};
     }

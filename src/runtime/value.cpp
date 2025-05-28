@@ -7,6 +7,7 @@
 // clang-format off
 #include <rangelua/runtime/value.hpp>
 #include <rangelua/runtime/objects.hpp>
+#include <rangelua/runtime/metamethod.hpp>
 // clang-format on
 
 #include <rangelua/core/error.hpp>
@@ -215,6 +216,13 @@ namespace rangelua::runtime {
             return Value(std::get<Number>(a_num) + std::get<Number>(b_num));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::ADD);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         // Enhanced error handling for invalid arithmetic operations
         RANGELUA_DEBUG_PRINT("Arithmetic error: Cannot add " +
                              std::to_string(static_cast<int>(type())) + " and " +
@@ -234,6 +242,13 @@ namespace rangelua::runtime {
             return Value(std::get<Number>(a_num) - std::get<Number>(b_num));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::SUB);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
@@ -243,6 +258,13 @@ namespace rangelua::runtime {
 
         if (std::holds_alternative<Number>(a_num) && std::holds_alternative<Number>(b_num)) {
             return Value(std::get<Number>(a_num) * std::get<Number>(b_num));
+        }
+
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::MUL);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
         }
 
         return Value{};
@@ -268,6 +290,13 @@ namespace rangelua::runtime {
             return Value(std::numeric_limits<Number>::quiet_NaN());
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::DIV);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
@@ -283,6 +312,13 @@ namespace rangelua::runtime {
             return Value(std::numeric_limits<Number>::quiet_NaN());
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::MOD);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
@@ -294,6 +330,13 @@ namespace rangelua::runtime {
             return Value(std::pow(std::get<Number>(a_num), std::get<Number>(b_num)));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::POW);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
@@ -302,6 +345,12 @@ namespace rangelua::runtime {
 
         if (std::holds_alternative<Number>(num)) {
             return Value(-std::get<Number>(num));
+        }
+
+        // Try metamethod fallback
+        auto metamethod_result = MetamethodSystem::try_unary_metamethod(*this, Metamethod::UNM);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
         }
 
         return Value{};
@@ -318,6 +367,13 @@ namespace rangelua::runtime {
             return Value(static_cast<Number>(a_uint & b_uint));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::BAND);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
@@ -332,6 +388,13 @@ namespace rangelua::runtime {
             return Value(static_cast<Number>(a_uint | b_uint));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::BOR);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
@@ -344,6 +407,13 @@ namespace rangelua::runtime {
             auto a_uint = static_cast<UInt>(std::get<Number>(a_num));
             auto b_uint = static_cast<UInt>(std::get<Number>(b_num));
             return Value(static_cast<Number>(a_uint ^ b_uint));
+        }
+
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::BXOR);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
         }
 
         return Value{};
@@ -362,6 +432,12 @@ namespace rangelua::runtime {
             return Value(static_cast<Number>(result_int));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result = MetamethodSystem::try_unary_metamethod(*this, Metamethod::BNOT);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
@@ -374,6 +450,13 @@ namespace rangelua::runtime {
             auto a_uint = static_cast<UInt>(std::get<Number>(a_num));
             auto b_uint = static_cast<UInt>(std::get<Number>(b_num));
             return Value(static_cast<Number>(a_uint << b_uint));
+        }
+
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::SHL);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
         }
 
         return Value{};
@@ -390,11 +473,24 @@ namespace rangelua::runtime {
             return Value(static_cast<Number>(a_uint >> b_uint));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::SHR);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};
     }
 
     bool Value::operator<(const Value& other) const {
         if (!are_comparable(*this, other)) {
+            // Try metamethod fallback for incomparable types
+            auto metamethod_result =
+                MetamethodSystem::try_comparison_metamethod(*this, other, Metamethod::LT);
+            if (!is_error(metamethod_result)) {
+                return get_value(metamethod_result);
+            }
             return false;  // In Lua, incomparable values are never less than each other
         }
 
@@ -406,6 +502,12 @@ namespace rangelua::runtime {
                 case ValueType::String:
                     return std::get<String>(data_) < std::get<String>(other.data_);
                 default:
+                    // Try metamethod for other types
+                    auto metamethod_result =
+                        MetamethodSystem::try_comparison_metamethod(*this, other, Metamethod::LT);
+                    if (!is_error(metamethod_result)) {
+                        return get_value(metamethod_result);
+                    }
                     return false;  // Other types are not ordered
             }
         }
@@ -421,6 +523,14 @@ namespace rangelua::runtime {
     }
 
     bool Value::operator<=(const Value& other) const {
+        // Try metamethod first
+        auto metamethod_result =
+            MetamethodSystem::try_comparison_metamethod(*this, other, Metamethod::LE);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
+        // Fallback to < or ==
         return *this < other || *this == other;
     }
 
@@ -441,6 +551,13 @@ namespace rangelua::runtime {
             return Value(std::get<String>(a_str) + std::get<String>(b_str));
         }
 
+        // Try metamethod fallback
+        auto metamethod_result =
+            MetamethodSystem::try_binary_metamethod(*this, other, Metamethod::CONCAT);
+        if (!is_error(metamethod_result)) {
+            return get_value(metamethod_result);
+        }
+
         return Value{};  // Error case - should be handled by VM
     }
 
@@ -455,6 +572,12 @@ namespace rangelua::runtime {
                 }
                 return Value(0.0);
             default:
+                // Try metamethod fallback
+                auto metamethod_result =
+                    MetamethodSystem::try_unary_metamethod(*this, Metamethod::LEN);
+                if (!is_error(metamethod_result)) {
+                    return get_value(metamethod_result);
+                }
                 return Value{};  // Error case - should be handled by VM
         }
     }
@@ -463,7 +586,28 @@ namespace rangelua::runtime {
         if (is_table()) {
             const auto& table_ptr = std::get<TablePtr>(data_);
             if (table_ptr) {
-                return table_ptr->get(key);
+                Value result = table_ptr->get(key);
+                // If key not found in table, try __index metamethod
+                if (result.is_nil()) {
+                    auto metamethod =
+                        MetamethodSystem::get_metamethod(table_ptr.get(), Metamethod::INDEX);
+                    if (!metamethod.is_nil()) {
+                        if (metamethod.is_function()) {
+                            auto call_result =
+                                MetamethodSystem::call_metamethod(metamethod, {*this, key});
+                            if (!is_error(call_result)) {
+                                auto results = get_value(call_result);
+                                if (!results.empty()) {
+                                    return results[0];
+                                }
+                            }
+                        } else if (metamethod.is_table()) {
+                            // If __index is a table, recursively look up the key
+                            return metamethod.get(key);
+                        }
+                    }
+                }
+                return result;
             }
         }
         return Value{};  // Non-table values return nil
@@ -473,6 +617,24 @@ namespace rangelua::runtime {
         if (is_table()) {
             const auto& table_ptr = std::get<TablePtr>(data_);
             if (table_ptr) {
+                // Check if key already exists in table
+                Value existing = table_ptr->get(key);
+                if (existing.is_nil()) {
+                    // Key doesn't exist, try __newindex metamethod
+                    auto metamethod =
+                        MetamethodSystem::get_metamethod(table_ptr.get(), Metamethod::NEWINDEX);
+                    if (!metamethod.is_nil()) {
+                        if (metamethod.is_function()) {
+                            MetamethodSystem::call_metamethod(metamethod, {*this, key, value});
+                            return;
+                        } else if (metamethod.is_table()) {
+                            // If __newindex is a table, set the key in that table
+                            metamethod.set(key, value);
+                            return;
+                        }
+                    }
+                }
+                // Either key exists or no __newindex metamethod, set normally
                 table_ptr->set(key, value);
             }
         }

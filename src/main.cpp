@@ -19,7 +19,7 @@ using namespace rangelua;
  */
 struct Options {
     std::vector<std::string> files;
-    std::string log_level = "info";
+    std::string log_level = "off";
     std::vector<std::string> module_log_levels;
     std::string log_file;
     bool interactive = false;

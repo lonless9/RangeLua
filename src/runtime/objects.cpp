@@ -104,7 +104,7 @@ namespace rangelua::runtime {
         metatable_ = metatable;
     }
 
-    GCPtr<Table> Table::metatable() {
+    GCPtr<Table> Table::metatable() const {
         return metatable_;
     }
 

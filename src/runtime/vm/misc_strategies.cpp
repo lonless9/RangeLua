@@ -4,9 +4,10 @@
  * @version 0.1.0
  */
 
-#include <rangelua/runtime/vm/misc_strategies.hpp>
 #include <rangelua/backend/bytecode.hpp>
+#include <rangelua/runtime/metamethod.hpp>
 #include <rangelua/runtime/value.hpp>
+#include <rangelua/runtime/vm/misc_strategies.hpp>
 #include <rangelua/utils/logger.hpp>
 
 namespace rangelua::runtime {
@@ -120,20 +121,22 @@ namespace rangelua::runtime {
 
         VM_LOG_DEBUG("MMBIN: R[{}] := metamethod(R[{}], R[{}])", a, b, c);
 
-        [[maybe_unused]] const Value& left = context.stack_at(b);
-        [[maybe_unused]] const Value& right = context.stack_at(c);
+        const Value& left = context.stack_at(b);
+        const Value& right = context.stack_at(c);
 
-        // For now, this is a simplified implementation
-        // A full implementation would:
-        // 1. Determine which metamethod to call based on the operation
-        // 2. Look up the metamethod in the operands' metatables
-        // 3. Call the metamethod with the operands as arguments
-        // 4. Store the result
+        // The C register contains the metamethod type
+        // This maps to the Metamethod enum values
+        auto metamethod = static_cast<Metamethod>(c);
 
-        // Since we don't have full metamethod support yet, return nil
-        context.stack_at(a) = Value{};
+        // Try the binary metamethod
+        auto result = MetamethodSystem::try_binary_metamethod(left, right, metamethod);
+        if (is_error(result)) {
+            VM_LOG_ERROR("MMBIN: Metamethod {} failed", MetamethodSystem::get_name(metamethod));
+            return get_error(result);
+        }
 
-        VM_LOG_DEBUG("MMBIN: Metamethod operation not fully implemented, returning nil");
+        context.stack_at(a) = get_value(result);
+        VM_LOG_DEBUG("MMBIN: Metamethod {} succeeded", MetamethodSystem::get_name(metamethod));
         return std::monostate{};
     }
 
@@ -143,20 +146,28 @@ namespace rangelua::runtime {
         Register b = backend::InstructionEncoder::decode_b(instruction);
         Register c = backend::InstructionEncoder::decode_c(instruction);
 
-        // C contains the immediate value (signed)
-        std::int32_t sc = static_cast<std::int32_t>(c) - 128;
+        // In Lua 5.5 MMBINI format: A B C k
+        // A = result register, B = left operand register, C = metamethod type, k = immediate flag
+        // The immediate value is encoded in B as a signed value
+        auto metamethod = static_cast<Metamethod>(c);
 
-        VM_LOG_DEBUG("MMBINI: R[{}] := metamethod(R[{}], {})", a, b, sc);
+        // B contains the immediate value (signed)
+        std::int32_t sb = static_cast<std::int32_t>(b) - 128;
 
-        [[maybe_unused]] const Value& left = context.stack_at(b);
-        [[maybe_unused]] Value right(static_cast<Number>(sc));
+        VM_LOG_DEBUG("MMBINI: R[{}] := metamethod({}, R[{}]) [{}]", a, sb, a, MetamethodSystem::get_name(metamethod));
 
-        // For now, this is a simplified implementation
-        // A full implementation would call the appropriate metamethod
-        context.stack_at(a) = Value{};
+        const Value& left = context.stack_at(a);
+        Value right(static_cast<Number>(sb));
 
-        VM_LOG_DEBUG(
-            "MMBINI: Metamethod operation with immediate not fully implemented, returning nil");
+        // Try the binary metamethod with immediate value
+        auto result = MetamethodSystem::try_binary_metamethod(left, right, metamethod);
+        if (is_error(result)) {
+            VM_LOG_ERROR("MMBINI: Metamethod {} with immediate failed", MetamethodSystem::get_name(metamethod));
+            return get_error(result);
+        }
+
+        context.stack_at(a) = get_value(result);
+        VM_LOG_DEBUG("MMBINI: Metamethod {} with immediate succeeded", MetamethodSystem::get_name(metamethod));
         return std::monostate{};
     }
 
@@ -166,17 +177,24 @@ namespace rangelua::runtime {
         Register b = backend::InstructionEncoder::decode_b(instruction);
         Register c = backend::InstructionEncoder::decode_c(instruction);
 
-        VM_LOG_DEBUG("MMBINK: R[{}] := metamethod(R[{}], K[{}])", a, b, c);
+        // In Lua 5.5 MMBINK format: A B C k
+        // A = result register, B = constant index, C = metamethod type, k = constant flag
+        auto metamethod = static_cast<Metamethod>(c);
 
-        [[maybe_unused]] const Value& left = context.stack_at(b);
-        [[maybe_unused]] const Value& right = context.get_constant(c);
+        VM_LOG_DEBUG("MMBINK: R[{}] := metamethod(R[{}], K[{}]) [{}]", a, a, b, MetamethodSystem::get_name(metamethod));
 
-        // For now, this is a simplified implementation
-        // A full implementation would call the appropriate metamethod
-        context.stack_at(a) = Value{};
+        const Value& left = context.stack_at(a);
+        const Value& right = context.get_constant(b);
 
-        VM_LOG_DEBUG(
-            "MMBINK: Metamethod operation with constant not fully implemented, returning nil");
+        // Try the binary metamethod with constant value
+        auto result = MetamethodSystem::try_binary_metamethod(left, right, metamethod);
+        if (is_error(result)) {
+            VM_LOG_ERROR("MMBINK: Metamethod {} with constant failed", MetamethodSystem::get_name(metamethod));
+            return get_error(result);
+        }
+
+        context.stack_at(a) = get_value(result);
+        VM_LOG_DEBUG("MMBINK: Metamethod {} with constant succeeded", MetamethodSystem::get_name(metamethod));
         return std::monostate{};
     }
 

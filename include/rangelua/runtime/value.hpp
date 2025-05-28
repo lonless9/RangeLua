@@ -135,6 +135,19 @@ namespace rangelua::runtime {
         // Get GC object pointer (for garbage collection traversal)
         [[nodiscard]] GCObject* as_gc_object() const noexcept;
 
+        // Direct access methods (unsafe - use with type checking)
+        [[nodiscard]] Boolean as_boolean() const { return std::get<Boolean>(data_); }
+        [[nodiscard]] Number as_number() const { return std::get<Number>(data_); }
+        [[nodiscard]] const String& as_string() const { return std::get<String>(data_); }
+        [[nodiscard]] const TablePtr& as_table() const { return std::get<TablePtr>(data_); }
+        [[nodiscard]] const FunctionPtr& as_function() const {
+            return std::get<FunctionPtr>(data_);
+        }
+        [[nodiscard]] const UserdataPtr& as_userdata() const {
+            return std::get<UserdataPtr>(data_);
+        }
+        [[nodiscard]] const ThreadPtr& as_thread() const { return std::get<ThreadPtr>(data_); }
+
         // Type conversions with error handling
         [[nodiscard]] Result<Boolean> to_boolean() const noexcept;
         [[nodiscard]] Result<Number> to_number() const noexcept;
