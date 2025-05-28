@@ -78,7 +78,7 @@ namespace rangelua::stdlib::basic {
 
     std::vector<runtime::Value> ipairsaux(const std::vector<runtime::Value>& args) {
         if (args.size() < 2) {
-            return {};  // Return empty if insufficient arguments (end of iteration)
+            return {runtime::Value{}};  // Return nil to signal end of iteration
         }
 
         // Get the table and current index
@@ -86,13 +86,13 @@ namespace rangelua::stdlib::basic {
         const auto& index_value = args[1];
 
         if (!table_value.is_table()) {
-            return {};  // Return empty if not a table (end of iteration)
+            return {runtime::Value{}};  // Return nil to signal end of iteration
         }
 
         // Convert index to integer and increment
         auto index_result = index_value.to_number();
         if (!std::holds_alternative<double>(index_result)) {
-            return {};  // Return empty if index is not a number (end of iteration)
+            return {runtime::Value{}};  // Return nil to signal end of iteration
         }
 
         Int current_index = static_cast<Int>(std::get<double>(index_result));
@@ -101,7 +101,7 @@ namespace rangelua::stdlib::basic {
         // Get the table
         auto table_result = table_value.to_table();
         if (!std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_result)) {
-            return {};  // Return empty if table conversion failed (end of iteration)
+            return {runtime::Value{}};  // Return nil to signal end of iteration
         }
 
         auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
@@ -111,8 +111,8 @@ namespace rangelua::stdlib::basic {
         runtime::Value value = table->get(key);
 
         if (value.is_nil()) {
-            // End of iteration - return empty (this signals end of iteration)
-            return {};
+            // End of iteration - return nil to signal end of iteration
+            return {runtime::Value{}};
         }
 
         // Return index and value

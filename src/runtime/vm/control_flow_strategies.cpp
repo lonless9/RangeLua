@@ -331,20 +331,62 @@ namespace rangelua::runtime {
             return call_result;
         }
 
-        // Store results in R[A+4], R[A+5], ..., R[A+3+C]
-        Size result_count = std::min(static_cast<Size>(c), results.size());
-        for (Size i = 0; i < result_count; ++i) {
-            context.stack_at(a + 4 + i) = std::move(results[i]);
-        }
+        // Handle iterator function results
+        if (results.empty() || (results.size() == 1 && results[0].is_nil())) {
+            // Empty result vector or single nil result signals end of iteration
+            // Set all result registers to nil to signal loop termination
+            VM_LOG_DEBUG("TFORCALL: Iterator returned nil, setting all result registers to nil");
+            for (Size i = 0; i < c; ++i) {
+                context.stack_at(a + 4 + i) = Value{};
+            }
 
-        // Fill remaining slots with nil
-        for (Size i = result_count; i < c; ++i) {
-            context.stack_at(a + 4 + i) = Value{};
-        }
+            // Find the corresponding TFORLOOP instruction and jump to it
+            // We need to scan forward to find the TFORLOOP instruction with the same base register
+            const auto* function = context.current_function();
+            if (function) {
+                Size current_ip = context.instruction_pointer();
+                Size target_ip = current_ip;
 
-        // Update control variable with first result (if any)
-        if (!results.empty() && !results[0].is_nil()) {
-            context.stack_at(a + 2) = results[0];
+                // Scan forward to find TFORLOOP instruction
+                for (Size ip = current_ip; ip < function->instructions.size(); ++ip) {
+                    Instruction instr = function->instructions[ip];
+                    OpCode opcode = backend::InstructionEncoder::decode_opcode(instr);
+
+                    if (opcode == OpCode::OP_TFORLOOP) {
+                        Register tfor_a = backend::InstructionEncoder::decode_a(instr);
+                        if (tfor_a == a) {
+                            // Found the matching TFORLOOP instruction
+                            target_ip = ip;
+                            break;
+                        }
+                    }
+                }
+
+                if (target_ip != current_ip) {
+                    // Jump to the TFORLOOP instruction
+                    std::int32_t offset = static_cast<std::int32_t>(target_ip) - static_cast<std::int32_t>(current_ip);
+                    VM_LOG_DEBUG("TFORCALL: Jumping to TFORLOOP at offset {}", offset);
+                    context.adjust_instruction_pointer(offset);
+                } else {
+                    VM_LOG_DEBUG("TFORCALL: Could not find matching TFORLOOP, continuing normally");
+                }
+            }
+        } else {
+            // Store results in R[A+4], R[A+5], ..., R[A+3+C]
+            Size result_count = std::min(static_cast<Size>(c), results.size());
+            for (Size i = 0; i < result_count; ++i) {
+                context.stack_at(a + 4 + i) = std::move(results[i]);
+            }
+
+            // Fill remaining slots with nil only if we have some results
+            for (Size i = result_count; i < c; ++i) {
+                context.stack_at(a + 4 + i) = Value{};
+            }
+
+            // Update control variable with first result (if any)
+            if (!results[0].is_nil()) {
+                context.stack_at(a + 2) = results[0];
+            }
         }
 
         return std::monostate{};
@@ -360,11 +402,17 @@ namespace rangelua::runtime {
 
         // Check if the first iterator result is not nil
         const Value& first_result = context.stack_at(a + 4);
+        VM_LOG_DEBUG("TFORLOOP: first_result = {}, is_nil = {}",
+                     first_result.debug_string(),
+                     first_result.is_nil());
 
         if (!first_result.is_nil()) {
             // Continue loop: update control variable and jump back
+            VM_LOG_DEBUG("TFORLOOP: Continuing loop, jumping back");
             context.stack_at(a + 2) = first_result;
             context.adjust_instruction_pointer(-static_cast<std::int32_t>(bx));
+        } else {
+            VM_LOG_DEBUG("TFORLOOP: Loop terminated, first result is nil");
         }
         // If nil, loop ends and execution continues
 
