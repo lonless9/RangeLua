@@ -426,6 +426,9 @@ namespace rangelua::backend {
         // Temporary compatibility member for migration
         Optional<Register> current_result_register_;
 
+        // Context flag for multi-return function calls (e.g., in generic for loops)
+        bool multi_return_context_ = false;
+
         // Loop context management
         struct LoopContext {
             JumpManager::JumpList break_jumps;

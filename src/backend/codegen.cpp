@@ -854,7 +854,15 @@ namespace rangelua::backend {
 
         // Emit CALL instruction
         Size arg_count = arg_expressions.size();
-        emitter_.emit_abc(OpCode::OP_CALL, call_base, static_cast<Register>(arg_count + 1), 2);
+
+        // Determine the number of return values based on context
+        Register return_count = 2;  // Default: 1 return value (2 = 1 + 1)
+        if (multi_return_context_) {
+            return_count = 4;  // 3 return values (4 = 3 + 1) for generic for loops
+        }
+
+        emitter_.emit_abc(
+            OpCode::OP_CALL, call_base, static_cast<Register>(arg_count + 1), return_count);
 
         // Free the argument registers (but keep the function register for the result)
         for (Size i = 1; i < total_needed; ++i) {
@@ -1466,7 +1474,97 @@ namespace rangelua::backend {
         const auto& names = node.names();
         const auto& values = node.values();
 
-        // Generate code for all values first
+        // Special handling for multiple variables with single function call
+        if (names.size() > 1 && values.size() == 1) {
+            // Check if the single value is a function call that might return multiple values
+            if (const auto* func_call =
+                    dynamic_cast<const frontend::FunctionCallExpression*>(values[0].get())) {
+                CODEGEN_LOG_DEBUG("Multi-variable local declaration with single function call");
+
+                // Allocate consecutive registers for all local variables
+                std::vector<Register> local_registers;
+                for (Size i = 0; i < names.size(); ++i) {
+                    auto reg_result = register_allocator_.allocate();
+                    if (is_error(reg_result)) {
+                        CODEGEN_LOG_ERROR("Failed to allocate register for local variable: {}",
+                                          names[i]);
+                        return;
+                    }
+                    local_registers.push_back(get_value(reg_result));
+                }
+
+                // Generate the function call with multi-return context
+                multi_return_context_ = true;
+
+                // Generate code for the function expression
+                func_call->function().accept(*this);
+                if (!current_expression_.has_value()) {
+                    CODEGEN_LOG_ERROR("Function expression did not produce result");
+                    multi_return_context_ = false;
+                    return;
+                }
+                ExpressionDesc func_expr = current_expression_.value();
+
+                // Generate code for arguments
+                std::vector<ExpressionDesc> arg_expressions;
+                for (const auto& arg : func_call->arguments()) {
+                    arg->accept(*this);
+                    if (current_expression_.has_value()) {
+                        arg_expressions.push_back(current_expression_.value());
+                    }
+                }
+
+                // Reserve consecutive registers for the call
+                Size total_needed = 1 + arg_expressions.size();
+                Register call_base = register_allocator_.reserve_registers(total_needed);
+
+                // Move function to call position
+                expression_to_register(func_expr, call_base);
+
+                // Move arguments to call positions
+                for (Size i = 0; i < arg_expressions.size(); ++i) {
+                    expression_to_register(arg_expressions[i],
+                                           call_base + 1 + static_cast<Register>(i));
+                }
+
+                // Emit CALL instruction with expected number of return values
+                Size arg_count = arg_expressions.size();
+                Register return_count =
+                    static_cast<Register>(names.size() + 1);  // +1 for Lua encoding
+
+                emitter_.emit_abc(
+                    OpCode::OP_CALL, call_base, static_cast<Register>(arg_count + 1), return_count);
+
+                multi_return_context_ = false;
+
+                // Move results to local variable registers and declare them
+                for (Size i = 0; i < names.size(); ++i) {
+                    Register local_reg = local_registers[i];
+                    scope_manager_.declare_local(names[i], local_reg);
+
+                    if (call_base + i != local_reg) {
+                        emitter_.emit_abc(
+                            OpCode::OP_MOVE, local_reg, call_base + static_cast<Register>(i), 0);
+                    }
+                }
+
+                // Free the argument registers
+                for (Size i = 1; i < total_needed; ++i) {
+                    register_allocator_.free_register(call_base + static_cast<Register>(i),
+                                                      register_allocator_.local_count());
+                }
+
+                // Clean up expressions
+                free_expression(func_expr);
+                for (auto& arg_expr : arg_expressions) {
+                    free_expression(arg_expr);
+                }
+
+                return;
+            }
+        }
+
+        // Standard handling for other cases
         std::vector<ExpressionDesc> value_expressions;
         for (const auto& value : values) {
             value->accept(*this);
@@ -1764,92 +1862,95 @@ namespace rangelua::backend {
         // Enter new scope for the loop variables
         scope_manager_.enter_scope();
 
-        // Allocate registers for iterator function, state, and control variable
-        auto iter_reg_result = register_allocator_.allocate();
-        auto state_reg_result = register_allocator_.allocate();
-        auto control_reg_result = register_allocator_.allocate();
+        // For generic for loops, we need to handle the iterator expression specially
+        // The pattern is: for vars in explist do body end
+        // Where explist typically returns 3 values: iterator function, state, control variable
 
-        if (is_error(iter_reg_result) || is_error(state_reg_result) || is_error(control_reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate registers for generic for loop");
+        const auto& expressions = node.expressions();
+        if (expressions.empty()) {
+            CODEGEN_LOG_ERROR("Generic for loop has no iterator expressions");
             scope_manager_.exit_scope();
             return;
         }
 
-        Register iter_reg = get_value(iter_reg_result);
-        Register state_reg = get_value(state_reg_result);
-        Register control_reg = get_value(control_reg_result);
+        // Allocate consecutive registers for the Lua 5.5 generic for loop protocol:
+        // base + 0: iterator function
+        // base + 1: state (invariant state)
+        // base + 2: control variable (initial value)
+        // base + 3: (reserved for upvalue creation by TFORPREP)
+        // base + 4: first loop variable
+        // base + 5: second loop variable (if any)
+        // etc.
+        Size total_registers_needed = 4 + node.variables().size();  // base + state + control + reserved + variables
+        Register base_reg = register_allocator_.reserve_registers(total_registers_needed);
+        Register state_reg = base_reg + 1;
+        Register control_reg = base_reg + 2;
 
-        // Generate code for iterator expressions
-        const auto& expressions = node.expressions();
-        if (expressions.size() >= 1) {
-            // First expression is the iterator function
-            expressions[0]->accept(*this);
-            emitter_.emit_abc(OpCode::OP_MOVE, iter_reg, current_result_register_.value_or(0), 0);
-            if (current_result_register_.has_value()) {
-                register_allocator_.free(current_result_register_.value());
+        // Generate the iterator expression (e.g., ipairs(t))
+        // This should return 3 values: iterator function, state, control variable
+        // Set the multi-return context flag so function calls return 3 values
+        multi_return_context_ = true;
+        expressions[0]->accept(*this);
+        multi_return_context_ = false;
+
+        if (current_expression_.has_value()) {
+            ExpressionDesc expr = current_expression_.value();
+
+            // The function call should have returned 3 values to consecutive registers
+            // starting from the call base register due to the multi_return_context_ flag
+            Register call_base_reg = expression_to_any_register(expr);
+
+            // Move the values to the correct registers if needed
+            if (call_base_reg != base_reg) {
+                emitter_.emit_abc(OpCode::OP_MOVE, base_reg, call_base_reg, 0);
             }
+            if (call_base_reg + 1 != state_reg) {
+                emitter_.emit_abc(OpCode::OP_MOVE, state_reg, call_base_reg + 1, 0);
+            }
+            if (call_base_reg + 2 != control_reg) {
+                emitter_.emit_abc(OpCode::OP_MOVE, control_reg, call_base_reg + 2, 0);
+            }
+
+            free_expression(expr);
         }
 
-        if (expressions.size() >= 2) {
-            // Second expression is the state
-            expressions[1]->accept(*this);
-            emitter_.emit_abc(OpCode::OP_MOVE, state_reg, current_result_register_.value_or(0), 0);
-            if (current_result_register_.has_value()) {
-                register_allocator_.free(current_result_register_.value());
-            }
-        } else {
-            // Default state is nil
-            emitter_.emit_abc(OpCode::OP_LOADNIL, state_reg, 0, 0);
-        }
-
-        if (expressions.size() >= 3) {
-            // Third expression is the initial control variable
-            expressions[2]->accept(*this);
-            emitter_.emit_abc(OpCode::OP_MOVE, control_reg, current_result_register_.value_or(0), 0);
-            if (current_result_register_.has_value()) {
-                register_allocator_.free(current_result_register_.value());
-            }
-        } else {
-            // Default control variable is nil
-            emitter_.emit_abc(OpCode::OP_LOADNIL, control_reg, 0, 0);
-        }
-
-        // Allocate registers for loop variables
+        // Set up loop variables at base + 4, base + 5, etc.
+        // These are the registers where TFORCALL will store the iterator results
         std::vector<Register> var_registers;
-        for (const auto& var_name : node.variables()) {
-            auto var_reg_result = register_allocator_.allocate();
-            if (is_success(var_reg_result)) {
-                Register var_reg = get_value(var_reg_result);
-                var_registers.push_back(var_reg);
-                scope_manager_.declare_local(var_name, var_reg);
-            }
+        for (Size i = 0; i < node.variables().size(); ++i) {
+            Register var_reg = base_reg + 4 + static_cast<Register>(i);
+            var_registers.push_back(var_reg);
+            scope_manager_.declare_local(node.variables()[i], var_reg);
         }
 
-        // Mark loop start
-        Size loop_start = jump_manager_.current_instruction();
+        // Emit TFORPREP instruction to set up the loop
+        // TFORPREP creates an upvalue for R[A + 3] and jumps to TFORCALL
+        Size tforprep_pc = emitter_.emit_abx(OpCode::OP_TFORPREP, base_reg, 0);
 
-        // Enter loop context for break/continue handling
+        // TFORCALL: R[A+4], ... ,R[A+3+C] := R[A](R[A+1], R[A+2])
+        // This is the loop start - where TFORLOOP will jump back to
+        Size loop_start = jump_manager_.current_instruction();
         enter_loop(loop_start);
 
-        // Call iterator function: iter(state, control)
-        // For now, use a simplified approach
-        emitter_.emit_abc(OpCode::OP_CALL, iter_reg, 3, static_cast<Register>(var_registers.size() + 1));
+        // Emit TFORCALL instruction to call the iterator function
+        auto num_vars = static_cast<Register>(var_registers.size());
+        emitter_.emit_abc(OpCode::OP_TFORCALL, base_reg, 0, num_vars);
 
-        // Test if first return value is nil (end of iteration)
-        if (!var_registers.empty()) {
-            emitter_.emit_abc(OpCode::OP_TEST, var_registers[0], 0, 0);
-            Size exit_jump = jump_manager_.emit_jump();  // Forward jump to loop end
+        // Generate loop body
+        node.body().accept(*this);
 
-            // Generate loop body
-            node.body().accept(*this);
+        // Emit TFORLOOP instruction
+        // TFORLOOP: if R[A+4] ~= nil then { R[A+2] := R[A+4]; pc -= Bx }
+        Size tforloop_pc = jump_manager_.current_instruction();
+        std::int32_t loop_offset = static_cast<std::int32_t>(loop_start) - static_cast<std::int32_t>(tforloop_pc) - 1;
+        emitter_.emit_abx(OpCode::OP_TFORLOOP, base_reg, static_cast<Size>(-loop_offset));
 
-            // Jump back to loop start
-            jump_manager_.emit_jump(loop_start);
-
-            // Patch exit jump to here (after loop)
-            Size loop_end = jump_manager_.current_instruction();
-            jump_manager_.patch_jump(exit_jump, loop_end);
-        }
+        // Patch the TFORPREP instruction to jump to after the loop
+        Size after_loop = jump_manager_.current_instruction();
+        std::int32_t prep_offset = static_cast<std::int32_t>(after_loop) - static_cast<std::int32_t>(tforprep_pc) - 1;
+        emitter_.patch_instruction(
+            tforprep_pc,
+            InstructionEncoder::encode_abx(OpCode::OP_TFORPREP, base_reg, static_cast<Size>(prep_offset)));
 
         // Exit loop context and patch break/continue jumps
         exit_loop();
@@ -1857,12 +1958,10 @@ namespace rangelua::backend {
         // Exit scope
         scope_manager_.exit_scope();
 
-        // Free registers
-        register_allocator_.free(iter_reg);
-        register_allocator_.free(state_reg);
-        register_allocator_.free(control_reg);
-        for (Register var_reg : var_registers) {
-            register_allocator_.free(var_reg);
+        // Free the reserved registers (in reverse order)
+        for (Size i = 0; i < total_registers_needed; ++i) {
+            register_allocator_.free_register(base_reg + total_registers_needed - 1 - static_cast<Register>(i),
+                                              register_allocator_.local_count());
         }
     }
 

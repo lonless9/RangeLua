@@ -111,12 +111,12 @@ namespace rangelua::stdlib::basic {
         runtime::Value value = table->get(key);
 
         if (value.is_nil()) {
-            // End of iteration - return empty
+            // End of iteration - return empty (this signals end of iteration)
             return {};
-        } else {
-            // Return index and value
-            return {runtime::Value(static_cast<Number>(next_index)), value};
         }
+
+        // Return index and value
+        return {runtime::Value(static_cast<Number>(next_index)), value};
     }
 
     std::vector<runtime::Value> ipairs(const std::vector<runtime::Value>& args) {
