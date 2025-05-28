@@ -574,16 +574,50 @@ namespace rangelua::runtime {
 
         try {
             // Save the original stack top before setting up the function call
-            Size original_stack_top = stack_top_;
+            // This will be where the return values should be placed
+            Size function_call_base = stack_top_;
 
-            // For now, we'll create a simple bytecode function wrapper
-            // In a full implementation, this would integrate with the bytecode system
+            // Create a bytecode function wrapper with proper constants
             backend::BytecodeFunction bytecode_func;
             bytecode_func.name = "lua_function";
             bytecode_func.parameter_count = function->parameterCount();
-            bytecode_func.stack_size = 16;  // Default stack size
+            bytecode_func.stack_size = 32;  // Increased stack size for safety
             bytecode_func.instructions = function->bytecode();
-            bytecode_func.is_vararg = function->isVararg();  // Copy vararg flag from Function
+            bytecode_func.is_vararg = function->isVararg();
+
+            // Copy constants from the function to the bytecode function
+            const auto& constants = function->constants();
+            bytecode_func.constants.reserve(constants.size());
+            for (const auto& constant : constants) {
+                // Convert runtime Value to backend ConstantValue
+                backend::ConstantValue backend_constant;
+                if (constant.is_nil()) {
+                    backend_constant = std::monostate{};
+                } else if (constant.is_boolean()) {
+                    auto bool_result = constant.to_boolean();
+                    if (!is_error(bool_result)) {
+                        backend_constant = get_value(bool_result);
+                    }
+                } else if (constant.is_number()) {
+                    auto num_result = constant.to_number();
+                    if (!is_error(num_result)) {
+                        backend_constant = get_value(num_result);
+                    }
+                } else if (constant.is_string()) {
+                    auto str_result = constant.to_string();
+                    if (!is_error(str_result)) {
+                        backend_constant = get_value(str_result);
+                    }
+                } else {
+                    // Fallback to nil for unsupported types
+                    backend_constant = std::monostate{};
+                }
+                bytecode_func.constants.push_back(backend_constant);
+            }
+
+            VM_LOG_DEBUG("Created bytecode function with {} constants and {} instructions",
+                         bytecode_func.constants.size(),
+                         bytecode_func.instructions.size());
 
             // Setup call frame for the function
             auto setup_result = setup_call_frame(bytecode_func, args.size());
@@ -635,34 +669,76 @@ namespace rangelua::runtime {
             // Collect results from stack
             std::vector<Value> results;
 
-            // After return_from_function, the return values should be at the function's original
-            // stack base The function was called with a specific stack base, and
-            // return_from_function places the results starting at that base
-            Size function_base =
-                original_stack_top;  // This was the base where the function started
+            // After function execution, the return values should be placed starting at the
+            // call frame's stack_base (which is where return_from_function places them)
+            // The call frame was set up with stack_base = stack_top_ - arg_count
+            Size function_base = function_call_base - args.size();
 
-            // The return_from_function method should have placed the results starting at
-            // function_base and adjusted stack_top_ to function_base + result_count
-            // Check for underflow to prevent infinite loops
+            VM_LOG_DEBUG("Function execution completed. function_call_base={}, args.size()={}, "
+                         "calculated_function_base={}, current_stack_top={}",
+                         function_call_base,
+                         args.size(),
+                         function_base,
+                         stack_top_);
+
+            // The return_from_function method places return values starting at the call base
+            // and adjusts stack_top_ accordingly. However, we need to account for the fact
+            // that the function call might have consumed some stack space.
             Size result_count = 0;
-            if (stack_top_ >= function_base) {
+
+            // Check if stack_top_ indicates return values are available
+            if (stack_top_ > function_base) {
                 result_count = stack_top_ - function_base;
+                VM_LOG_DEBUG("Found {} return values at stack positions {} to {}",
+                             result_count,
+                             function_base,
+                             stack_top_ - 1);
+            } else if (stack_top_ == function_base) {
+                // No return values, but this is normal for functions that don't return anything
+                result_count = 0;
+                VM_LOG_DEBUG("Function returned no values (stack_top_ == function_base)");
             } else {
+                // Stack underflow - this shouldn't happen with proper stack management
                 VM_LOG_ERROR("Stack underflow detected: stack_top_={}, function_base={}",
                              stack_top_,
                              function_base);
-                // Assume 1 result (the function should return at least one value)
-                result_count = 1;
+
+                // Try to recover by checking if there are values at the expected position
+                if (function_base > 0 && function_base <= stack_.size()) {
+                    // Check if there's a value at the function base that could be a return value
+                    if (!stack_[function_base - 1].is_nil()) {
+                        result_count = 1;
+                        function_base = function_base - 1;
+                        VM_LOG_DEBUG("Recovered: found return value at position {}", function_base);
+                    } else {
+                        result_count = 0;
+                        VM_LOG_DEBUG("No return values available after recovery attempt");
+                    }
+                } else {
+                    result_count = 0;
+                    VM_LOG_DEBUG("No return values available");
+                }
             }
 
-            VM_LOG_DEBUG(
-                "Collecting {} return values from function_base {}", result_count, function_base);
-
+            // Collect return values from the stack
             for (Size i = 0; i < result_count; ++i) {
-                if (function_base + i < stack_.size()) {
-                    results.push_back(stack_[function_base + i]);
-                    VM_LOG_DEBUG("Collected return value[{}]: {}", i, results[i].debug_string());
+                Size stack_index = function_base + i;
+                if (stack_index < stack_.size()) {
+                    results.push_back(stack_[stack_index]);
+                    VM_LOG_DEBUG("Collected return value[{}] from stack[{}]: {}",
+                                 i,
+                                 stack_index,
+                                 stack_[stack_index].debug_string());
+                } else {
+                    results.push_back(Value{});  // nil for missing values
+                    VM_LOG_DEBUG("Collected return value[{}]: nil (missing from stack)", i);
                 }
+            }
+
+            // If no results were collected, return a single nil value (Lua convention)
+            if (results.empty()) {
+                results.push_back(Value{});
+                VM_LOG_DEBUG("No return values collected, returning single nil");
             }
 
             return results;
