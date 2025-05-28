@@ -60,63 +60,53 @@ TEST_CASE("BytecodeEmitter basic functionality", "[codegen][bytecode]") {
 }
 
 TEST_CASE("RegisterAllocator functionality", "[codegen][register]") {
-    SECTION("Basic allocation and deallocation") {
+    SECTION("Basic register reservation") {
         RegisterAllocator allocator(10);
 
-        // Test basic allocation
-        auto reg1_result = allocator.allocate();
-        REQUIRE(is_success(reg1_result));
-        Register reg1 = get_value(reg1_result);
+        // Test basic register reservation
+        Register reg1 = allocator.reserve_registers(1);
+        REQUIRE(reg1 == 0);
+        REQUIRE(allocator.next_free() == 1);
 
-        auto reg2_result = allocator.allocate();
-        REQUIRE(is_success(reg2_result));
-        Register reg2 = get_value(reg2_result);
+        Register reg2 = allocator.reserve_registers(2);
+        REQUIRE(reg2 == 1);
+        REQUIRE(allocator.next_free() == 3);
 
-        REQUIRE(reg1 != reg2);
-        REQUIRE(allocator.allocated_count() == 2);
-        REQUIRE(allocator.high_water_mark() >= std::max(reg1, reg2));
-
-        // Test deallocation and reuse
-        allocator.free(reg1);
-        REQUIRE(allocator.allocated_count() == 1);
-
-        auto reg3_result = allocator.allocate();
-        REQUIRE(is_success(reg3_result));
-        Register reg3 = get_value(reg3_result);
-
-        // Should reuse the freed register
-        REQUIRE(reg3 == reg1);
-        REQUIRE(allocator.allocated_count() == 2);
+        // Test stack size tracking
+        REQUIRE(allocator.stack_size() == 3);
     }
 
-    SECTION("Specific allocation") {
+    SECTION("Register freeing") {
         RegisterAllocator allocator(10);
+        allocator.set_local_count(2);  // First 2 registers are locals
 
-        // Test specific allocation
-        auto status = allocator.allocate_specific(5);
-        REQUIRE(is_success(status));
-        REQUIRE(allocator.is_allocated(5));
+        // Reserve some registers
+        Register reg1 = allocator.reserve_registers(1);                   // reg 0
+        [[maybe_unused]] Register reg2 = allocator.reserve_registers(1);  // reg 1
+        Register reg3 = allocator.reserve_registers(1);                   // reg 2
 
-        // Try to allocate same register again - should fail
-        auto status2 = allocator.allocate_specific(5);
-        REQUIRE(is_error(status2));
+        REQUIRE(allocator.next_free() == 3);
+
+        // Try to free a local register (should not free)
+        allocator.free_register(reg1, allocator.local_count());
+        REQUIRE(allocator.next_free() == 3);  // Should not change
+
+        // Free a non-local register (should free)
+        allocator.free_register(reg3, allocator.local_count());
+        REQUIRE(allocator.next_free() == 2);  // Should decrease
     }
 
-    SECTION("Register reservation") {
+    SECTION("Stack size checking") {
         RegisterAllocator allocator(10);
 
-        // Reserve a register
-        allocator.reserve(3);
+        allocator.check_stack(5);
+        REQUIRE(allocator.stack_size() == 5);
 
-        // Try to allocate the reserved register - should skip it
-        auto reg_result = allocator.allocate();
-        REQUIRE(is_success(reg_result));
-        Register reg = get_value(reg_result);
-        REQUIRE(reg != 3);  // Should not allocate reserved register
+        allocator.check_stack(3);  // Should not decrease max
+        REQUIRE(allocator.stack_size() == 5);
 
-        // Try to specifically allocate reserved register - should fail
-        auto status = allocator.allocate_specific(3);
-        REQUIRE(is_error(status));
+        allocator.check_stack(8);  // Should increase max
+        REQUIRE(allocator.stack_size() == 8);
     }
 }
 

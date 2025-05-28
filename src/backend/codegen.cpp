@@ -9,100 +9,215 @@
 
 namespace rangelua::backend {
 
-    // RegisterAllocator implementation
+    // RegisterAllocator implementation (Lua 5.5 style)
     RegisterAllocator::RegisterAllocator(Size max_registers)
-        : max_registers_(max_registers),
-          allocated_(max_registers, false),
-          reserved_(max_registers, false),
-          next_register_(0),
-          high_water_(0) {}
+        : max_registers_(max_registers), free_reg_(0), max_stack_size_(0), local_count_(0) {}
 
-    Result<Register> RegisterAllocator::allocate() {
-        // First try to reuse a freed register
-        if (!free_list_.empty()) {
-            Register reg = free_list_.top();
-            free_list_.pop();
-
-            // Verify the register is not reserved
-            if (reserved_[reg]) {
-                // Put it back and try next register
-                free_list_.push(reg);
-            } else {
-                allocated_[reg] = true;
-                high_water_ = std::max(high_water_, reg);
-                return reg;
-            }
-        }
-
-        // Find next available register
-        for (Register reg = next_register_; reg < max_registers_; ++reg) {
-            if (!allocated_[reg] && !reserved_[reg]) {
-                allocated_[reg] = true;
-                high_water_ = std::max(high_water_, reg);
-                next_register_ = reg + 1;
-                return reg;
-            }
-        }
-
-        // No registers available
-        return ErrorCode::RUNTIME_ERROR;
+    Register RegisterAllocator::reserve_registers(Size n) {
+        check_stack(n);
+        Register start = free_reg_;
+        free_reg_ += static_cast<Register>(n);
+        return start;
     }
 
-    Status RegisterAllocator::allocate_specific(Register reg) {
-        if (reg >= max_registers_) {
-            return make_error<std::monostate>(ErrorCode::RUNTIME_ERROR);
-        }
-
-        if (allocated_[reg] || reserved_[reg]) {
-            return make_error<std::monostate>(ErrorCode::RUNTIME_ERROR);
-        }
-
-        allocated_[reg] = true;
-        high_water_ = std::max(high_water_, reg);
-        return make_success();
-    }
-
-    void RegisterAllocator::free(Register reg) {
-        if (reg < max_registers_ && allocated_[reg] && !reserved_[reg]) {
-            allocated_[reg] = false;
-            free_list_.push(reg);
+    void RegisterAllocator::free_register(Register reg, Size local_count) {
+        // Only free registers that are not local variables
+        if (reg >= local_count && reg == free_reg_ - 1) {
+            free_reg_--;
         }
     }
 
-    void RegisterAllocator::reserve(Register reg) {
-        if (reg < max_registers_) {
-            reserved_[reg] = true;
-            // If it was allocated, mark as not allocated but don't add to free list
-            if (allocated_[reg]) {
-                allocated_[reg] = false;
-            }
+    void RegisterAllocator::free_registers(Register r1, Register r2, Size local_count) {
+        // Free registers in reverse order (higher register first)
+        if (r1 > r2) {
+            free_register(r1, local_count);
+            free_register(r2, local_count);
+        } else {
+            free_register(r2, local_count);
+            free_register(r1, local_count);
         }
     }
 
-    Register RegisterAllocator::high_water_mark() const noexcept {
-        return high_water_;
-    }
-
-    Size RegisterAllocator::allocated_count() const noexcept {
-        Size count = 0;
-        for (bool alloc : allocated_) {
-            if (alloc)
-                count++;
+    void RegisterAllocator::check_stack(Size needed) {
+        Register new_stack = free_reg_ + static_cast<Register>(needed);
+        if (new_stack > max_registers_) {
+            // This should be an error in a real implementation
+            CODEGEN_LOG_ERROR("Register stack overflow: need {}, max {}", new_stack, max_registers_);
+            return;
         }
-        return count;
-    }
-
-    bool RegisterAllocator::is_allocated(Register reg) const noexcept {
-        return reg < max_registers_ && allocated_[reg];
+        if (new_stack > max_stack_size_) {
+            max_stack_size_ = new_stack;
+        }
     }
 
     void RegisterAllocator::reset() {
-        std::fill(allocated_.begin(), allocated_.end(), false);
-        std::fill(reserved_.begin(), reserved_.end(), false);
-        while (!free_list_.empty())
-            free_list_.pop();
-        next_register_ = 0;
-        high_water_ = 0;
+        free_reg_ = 0;
+        max_stack_size_ = 0;
+        local_count_ = 0;
+    }
+
+    // Temporary compatibility methods for migration
+    Result<Register> RegisterAllocator::allocate() {
+        Register reg = reserve_registers(1);
+        return reg;
+    }
+
+    void RegisterAllocator::free(Register reg) {
+        free_register(reg, local_count_);
+    }
+
+    Register RegisterAllocator::high_water_mark() const noexcept {
+        return max_stack_size_;
+    }
+
+    // Expression management methods (Lua 5.5 style)
+    void CodeGenerator::discharge_vars(ExpressionDesc& expr) {
+        switch (expr.kind) {
+            case ExpressionKind::LOCAL: {
+                // Local variable - already in register
+                expr.kind = ExpressionKind::NONRELOC;
+                // expr.u.info already contains the register
+                break;
+            }
+            case ExpressionKind::UPVAL: {
+                // Upvalue - emit GETUPVAL instruction
+                Register reg = register_allocator_.reserve_registers(1);
+                emitter_.emit_abc(OpCode::OP_GETUPVAL, reg, static_cast<Register>(expr.u.info), 0);
+                expr.kind = ExpressionKind::RELOC;
+                expr.u.info = emitter_.instruction_count() - 1;
+                break;
+            }
+            case ExpressionKind::GLOBAL: {
+                // Global variable - emit GETTABUP instruction
+                Register reg = register_allocator_.reserve_registers(1);
+                emitter_.emit_abc(OpCode::OP_GETTABUP, reg, 0, static_cast<Register>(expr.u.info));
+                expr.kind = ExpressionKind::RELOC;
+                expr.u.info = emitter_.instruction_count() - 1;
+                break;
+            }
+            case ExpressionKind::INDEXED: {
+                // Table access - emit GETTABLE instruction
+                Register reg = register_allocator_.reserve_registers(1);
+                emitter_.emit_abc(OpCode::OP_GETTABLE, reg, expr.u.indexed.table, expr.u.indexed.key);
+
+                // Free the table and key registers
+                register_allocator_.free_register(expr.u.indexed.table, register_allocator_.local_count());
+                if (!expr.u.indexed.is_const_key) {
+                    register_allocator_.free_register(expr.u.indexed.key, register_allocator_.local_count());
+                }
+
+                expr.kind = ExpressionKind::RELOC;
+                expr.u.info = emitter_.instruction_count() - 1;
+                break;
+            }
+            default:
+                // Other expression types don't need discharging
+                break;
+        }
+    }
+
+    void CodeGenerator::discharge_to_register(ExpressionDesc& expr, Register reg) {
+        discharge_vars(expr);
+
+        switch (expr.kind) {
+            case ExpressionKind::NIL:
+                emitter_.emit_abc(OpCode::OP_LOADNIL, reg, 0, 0);
+                break;
+            case ExpressionKind::FALSE:
+                emitter_.emit_abc(OpCode::OP_LOADFALSE, reg, 0, 0);
+                break;
+            case ExpressionKind::TRUE:
+                emitter_.emit_abc(OpCode::OP_LOADTRUE, reg, 0, 0);
+                break;
+            case ExpressionKind::KINT:
+                // Try to fit in sBx field first
+                if (expr.u.ival >= -32768 && expr.u.ival <= 32767) {
+                    emitter_.emit_asbx(OpCode::OP_LOADI, reg, static_cast<std::int32_t>(expr.u.ival));
+                } else {
+                    // Use constant pool
+                    Size const_index = emitter_.add_constant(expr.u.ival);
+                    emitter_.emit_abx(OpCode::OP_LOADK, reg, static_cast<std::uint32_t>(const_index));
+                }
+                break;
+            case ExpressionKind::KFLT:
+                // Use constant pool for floating point numbers
+                {
+                    Size const_index = emitter_.add_constant(expr.u.nval);
+                    emitter_.emit_abx(OpCode::OP_LOADK, reg, static_cast<std::uint32_t>(const_index));
+                }
+                break;
+            case ExpressionKind::K:
+                emitter_.emit_abx(OpCode::OP_LOADK, reg, static_cast<std::uint32_t>(expr.u.info));
+                break;
+            case ExpressionKind::RELOC: {
+                // Patch the instruction to use the specified register
+                emitter_.patch_instruction(expr.u.info,
+                    InstructionEncoder::encode_abc(
+                        InstructionEncoder::decode_opcode(emitter_.instructions()[expr.u.info]),
+                        reg,
+                        InstructionEncoder::decode_b(emitter_.instructions()[expr.u.info]),
+                        InstructionEncoder::decode_c(emitter_.instructions()[expr.u.info])
+                    ));
+                break;
+            }
+            case ExpressionKind::NONRELOC:
+                if (reg != expr.u.info) {
+                    emitter_.emit_abc(OpCode::OP_MOVE, reg, static_cast<Register>(expr.u.info), 0);
+                }
+                break;
+            default:
+                // Should not happen for properly discharged expressions
+                CODEGEN_LOG_ERROR("Cannot discharge expression kind to register");
+                break;
+        }
+
+        expr.u.info = reg;
+        expr.kind = ExpressionKind::NONRELOC;
+    }
+
+    void CodeGenerator::discharge_to_any_register(ExpressionDesc& expr) {
+        if (expr.kind != ExpressionKind::NONRELOC) {
+            Register reg = register_allocator_.reserve_registers(1);
+            discharge_to_register(expr, reg - 1);
+        }
+    }
+
+    Register CodeGenerator::expression_to_any_register(ExpressionDesc& expr) {
+        discharge_vars(expr);
+        if (expr.kind == ExpressionKind::NONRELOC) {
+            // Expression already has a register
+            return static_cast<Register>(expr.u.info);
+        }
+        // Use next available register
+        Register reg = register_allocator_.reserve_registers(1);
+        discharge_to_register(expr, reg - 1);
+        return reg - 1;
+    }
+
+    Register CodeGenerator::expression_to_next_register(ExpressionDesc& expr) {
+        discharge_vars(expr);
+        free_expression(expr);
+        Register reg = register_allocator_.reserve_registers(1);
+        discharge_to_register(expr, reg - 1);
+        return reg - 1;
+    }
+
+    void CodeGenerator::expression_to_register(ExpressionDesc& expr, Register reg) {
+        discharge_to_register(expr, reg);
+    }
+
+    void CodeGenerator::free_expression(ExpressionDesc& expr) {
+        if (expr.kind == ExpressionKind::NONRELOC) {
+            register_allocator_.free_register(static_cast<Register>(expr.u.info), register_allocator_.local_count());
+        }
+    }
+
+    void CodeGenerator::free_expressions(ExpressionDesc& e1, ExpressionDesc& e2) {
+        Register r1 = (e1.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e1.u.info) : 255;
+        Register r2 = (e2.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e2.u.info) : 255;
+        if (r1 != 255 || r2 != 255) {
+            register_allocator_.free_registers(r1, r2, register_allocator_.local_count());
+        }
     }
 
     // JumpManager implementation
@@ -268,7 +383,7 @@ namespace rangelua::backend {
 
         // Reset state for new compilation
         register_allocator_.reset();
-        current_result_register_.reset();
+        current_expression_.reset();
 
         // Generate code for the program
         ast.accept(*this);
@@ -281,11 +396,11 @@ namespace rangelua::backend {
         }
 
         // Update stack size based on register usage
-        emitter_.set_stack_size(register_allocator_.high_water_mark() + 1);
+        emitter_.set_stack_size(register_allocator_.stack_size());
 
         CODEGEN_LOG_INFO("Code generation completed. Instructions: {}, Stack size: {}",
                          emitter_.instruction_count(),
-                         register_allocator_.high_water_mark() + 1);
+                         register_allocator_.stack_size());
 
         // Debug: Print disassembled bytecode
         BytecodeFunction function = emitter_.get_function();
@@ -298,92 +413,74 @@ namespace rangelua::backend {
     Result<Register> CodeGenerator::generate_expression(const frontend::Expression& expr) {
         CODEGEN_LOG_DEBUG("Generating expression code");
 
-        // Save current result register state
-        Optional<Register> saved_result = current_result_register_;
-        current_result_register_.reset();
+        // Save current expression state
+        Optional<ExpressionDesc> saved_expr = current_expression_;
+        current_expression_.reset();
 
         // Generate code for the expression
         expr.accept(*this);
 
         // Check if expression generated a result
-        if (!current_result_register_.has_value()) {
-            CODEGEN_LOG_ERROR("Expression did not produce a result register");
-            current_result_register_ = saved_result;
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Expression did not produce a result");
+            current_expression_ = saved_expr;
             return ErrorCode::RUNTIME_ERROR;
         }
 
-        Register result = current_result_register_.value();
-        current_result_register_ = saved_result;
+        // Convert expression to register
+        ExpressionDesc result_expr = current_expression_.value();
+        Register result = expression_to_any_register(result_expr);
 
+        current_expression_ = saved_expr;
         return result;
     }
 
     Status CodeGenerator::generate_statement(const frontend::Statement& stmt) {
         CODEGEN_LOG_DEBUG("Generating statement code");
 
-        // Save current result register state
-        Optional<Register> saved_result = current_result_register_;
+        // Save current expression state
+        Optional<ExpressionDesc> saved_expr = current_expression_;
 
         // Generate code for the statement
         stmt.accept(*this);
 
-        // Restore result register state
-        current_result_register_ = saved_result;
+        // Restore expression state
+        current_expression_ = saved_expr;
 
         return make_success();
     }
 
-    // AST Visitor implementations
+    // AST Visitor implementations (using new expression system)
     void CodeGenerator::visit(const frontend::LiteralExpression& node) {
         CODEGEN_LOG_DEBUG("Generating code for literal expression");
 
-        // Allocate a register for the result
-        auto reg_result = register_allocator_.allocate();
-        if (is_error(reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for literal");
-            return;
-        }
+        ExpressionDesc expr;
 
-        Register result_reg = get_value(reg_result);
-        current_result_register_ = result_reg;
-
-        // Generate appropriate load instruction based on literal type
+        // Set expression type based on literal value
         std::visit(
-            [this, result_reg, &node](const auto& value) {
+            [&expr, this](const auto& value) {
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, std::monostate>) {
-                    // nil
-                    emitter_.emit_abc(OpCode::OP_LOADNIL, result_reg, 0, 0);
+                    expr.kind = ExpressionKind::NIL;
                 } else if constexpr (std::is_same_v<T, bool>) {
-                    if (value) {
-                        emitter_.emit_abc(OpCode::OP_LOADTRUE, result_reg, 0, 0);
-                    } else {
-                        emitter_.emit_abc(OpCode::OP_LOADFALSE, result_reg, 0, 0);
-                    }
+                    expr.kind = value ? ExpressionKind::TRUE : ExpressionKind::FALSE;
                 } else if constexpr (std::is_same_v<T, Int>) {
-                    // Try to fit in sBx field first
-                    if (value >= -32768 && value <= 32767) {
-                        emitter_.emit_asbx(
-                            OpCode::OP_LOADI, result_reg, static_cast<std::int32_t>(value));
-                    } else {
-                        // Use constant pool
-                        Size const_index = add_constant(node.value());
-                        emitter_.emit_abx(
-                            OpCode::OP_LOADK, result_reg, static_cast<std::uint32_t>(const_index));
-                    }
+                    expr.kind = ExpressionKind::KINT;
+                    expr.u.ival = value;
                 } else if constexpr (std::is_same_v<T, Number>) {
-                    // Use constant pool for floating point numbers
-                    Size const_index = add_constant(node.value());
-                    emitter_.emit_abx(
-                        OpCode::OP_LOADK, result_reg, static_cast<std::uint32_t>(const_index));
+                    expr.kind = ExpressionKind::KFLT;
+                    expr.u.nval = value;
                 } else if constexpr (std::is_same_v<T, String>) {
-                    // Use constant pool for strings
-                    Size const_index = add_constant(node.value());
-                    emitter_.emit_abx(
-                        OpCode::OP_LOADK, result_reg, static_cast<std::uint32_t>(const_index));
+                    expr.kind = ExpressionKind::KSTR;
+                    // For now, put string constants in constant table
+                    // In a full implementation, we'd check if it's a short string first
+                    expr.kind = ExpressionKind::K;
+                    expr.u.info = emitter_.add_constant(value);
                 }
             },
             node.value());
+
+        current_expression_ = expr;
     }
 
     void CodeGenerator::visit(const frontend::IdentifierExpression& node) {
@@ -392,32 +489,27 @@ namespace rangelua::backend {
         // Resolve the variable
         auto resolution = scope_manager_.resolve_variable(node.name());
 
-        // Allocate a register for the result
-        auto reg_result = register_allocator_.allocate();
-        if (is_error(reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for identifier");
-            return;
-        }
-
-        Register result_reg = get_value(reg_result);
-        current_result_register_ = result_reg;
+        ExpressionDesc expr;
 
         switch (resolution.type) {
             case ScopeManager::VariableResolution::Type::Local:
-                // Local variable - move from local register
-                emitter_.emit_abc(OpCode::OP_MOVE, result_reg, resolution.index, 0);
+                // Local variable - already in register
+                expr.kind = ExpressionKind::LOCAL;
+                expr.u.info = resolution.index;
                 break;
             case ScopeManager::VariableResolution::Type::Upvalue:
-                // Upvalue - get from upvalue
-                emitter_.emit_abc(OpCode::OP_GETUPVAL, result_reg, resolution.index, 0);
+                // Upvalue - will be loaded when discharged
+                expr.kind = ExpressionKind::UPVAL;
+                expr.u.info = resolution.index;
                 break;
             case ScopeManager::VariableResolution::Type::Global:
-                // Global variable - get from global table using _ENV upvalue
-                Size const_index = emitter_.add_constant(node.name());
-                emitter_.emit_abc(
-                    OpCode::OP_GETTABUP, result_reg, 0, static_cast<Register>(const_index));
+                // Global variable - will be loaded when discharged
+                expr.kind = ExpressionKind::GLOBAL;
+                expr.u.info = emitter_.add_constant(node.name());
                 break;
         }
+
+        current_expression_ = expr;
     }
 
     void CodeGenerator::visit(const frontend::BinaryOpExpression& node) {
@@ -425,21 +517,32 @@ namespace rangelua::backend {
 
         // Generate code for left operand
         node.left().accept(*this);
-        Register left_reg = current_result_register_.value_or(0);
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Left operand did not produce expression");
+            return;
+        }
+        ExpressionDesc left_expr = current_expression_.value();
 
         // Generate code for right operand
         node.right().accept(*this);
-        Register right_reg = current_result_register_.value_or(0);
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Right operand did not produce expression");
+            return;
+        }
+        ExpressionDesc right_expr = current_expression_.value();
 
-        // Allocate register for result
-        auto reg_result = register_allocator_.allocate();
-        if (is_error(reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for binary operation");
+        // Try constant folding first
+        if (try_constant_folding(node.operator_type(), left_expr, right_expr)) {
+            current_expression_ = left_expr;  // Result is in left_expr after folding
             return;
         }
 
-        Register result_reg = get_value(reg_result);
-        current_result_register_ = result_reg;
+        // Convert operands to registers
+        Register left_reg = expression_to_any_register(left_expr);
+        Register right_reg = expression_to_any_register(right_expr);
+
+        // Allocate register for result
+        Register result_reg = register_allocator_.reserve_registers(1) - 1;
 
         // Generate appropriate instruction based on operator
         switch (node.operator_type()) {
@@ -503,8 +606,13 @@ namespace rangelua::backend {
         }
 
         // Free the operand registers
-        register_allocator_.free(left_reg);
-        register_allocator_.free(right_reg);
+        free_expressions(left_expr, right_expr);
+
+        // Set result expression
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = result_reg;
+        current_expression_ = result_expr;
     }
 
     void CodeGenerator::visit(const frontend::UnaryOpExpression& node) {
@@ -512,17 +620,17 @@ namespace rangelua::backend {
 
         // Generate code for operand
         node.operand().accept(*this);
-        Register operand_reg = current_result_register_.value_or(0);
-
-        // Allocate register for result
-        auto reg_result = register_allocator_.allocate();
-        if (is_error(reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for unary operation");
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Operand did not produce expression");
             return;
         }
+        ExpressionDesc operand_expr = current_expression_.value();
 
-        Register result_reg = get_value(reg_result);
-        current_result_register_ = result_reg;
+        // Convert operand to register
+        Register operand_reg = expression_to_any_register(operand_expr);
+
+        // Allocate register for result
+        Register result_reg = register_allocator_.reserve_registers(1) - 1;
 
         // Generate appropriate instruction based on operator
         switch (node.operator_type()) {
@@ -544,74 +652,62 @@ namespace rangelua::backend {
         }
 
         // Free the operand register
-        register_allocator_.free(operand_reg);
+        free_expression(operand_expr);
+
+        // Set result expression
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = result_reg;
+        current_expression_ = result_expr;
     }
 
     void CodeGenerator::visit(const frontend::FunctionCallExpression& node) {
         CODEGEN_LOG_DEBUG("Generating code for function call");
 
-        // Allocate a block of consecutive registers for the function call
-        // We need: 1 register for function + N registers for arguments
-        Size total_registers_needed = 1 + node.arguments().size();
-
-        // Allocate consecutive registers starting from the current high water mark
-        Register base_reg = register_allocator_.high_water_mark() + 1;
-
-        // Reserve the registers we need
-        for (Size i = 0; i < total_registers_needed; ++i) {
-            auto reg_result = register_allocator_.allocate();
-            if (is_error(reg_result)) {
-                CODEGEN_LOG_ERROR("Failed to allocate register {} for function call", i);
-                return;
-            }
-        }
-
-        Register func_reg = base_reg;
-
-        // Generate code for the function expression and move it to func_reg
+        // Generate code for the function expression
         node.function().accept(*this);
-        Register temp_func_reg = current_result_register_.value_or(0);
-        if (temp_func_reg != func_reg) {
-            emitter_.emit_abc(OpCode::OP_MOVE, func_reg, temp_func_reg, 0);
-            register_allocator_.free(temp_func_reg);
-        }
-
-        // Generate code for arguments and move them to consecutive registers
-        for (Size i = 0; i < node.arguments().size(); ++i) {
-            node.arguments()[i]->accept(*this);
-            Register arg_reg = base_reg + 1 + static_cast<Register>(i);
-            Register temp_arg_reg = current_result_register_.value_or(0);
-            if (temp_arg_reg != arg_reg) {
-                emitter_.emit_abc(OpCode::OP_MOVE, arg_reg, temp_arg_reg, 0);
-                register_allocator_.free(temp_arg_reg);
-            }
-        }
-
-        // Allocate register for result
-        auto result_reg_result = register_allocator_.allocate();
-        if (is_error(result_reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for function call result");
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Function expression did not produce result");
             return;
         }
+        ExpressionDesc func_expr = current_expression_.value();
 
-        Register result_reg = get_value(result_reg_result);
-        current_result_register_ = result_reg;
-
-        // Emit CALL instruction: CALL A B C
-        // A = function register
-        // B = number of arguments + 1 (1 means 0 args, 2 means 1 arg, etc.)
-        // C = number of return values + 1 (1 means 0 returns, 2 means 1 return, 0 means all
-        // returns)
-        Size arg_count = node.arguments().size();
-        emitter_.emit_abc(OpCode::OP_CALL, func_reg, static_cast<Register>(arg_count + 1), 2);
-
-        // The result is now in func_reg, move it to our result register
-        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, func_reg, 0);
-
-        // Free the function and argument registers
-        for (Size i = 0; i < total_registers_needed; ++i) {
-            register_allocator_.free(base_reg + static_cast<Register>(i));
+        // Generate code for arguments
+        std::vector<ExpressionDesc> arg_expressions;
+        for (const auto& arg : node.arguments()) {
+            arg->accept(*this);
+            if (current_expression_.has_value()) {
+                arg_expressions.push_back(current_expression_.value());
+            }
         }
+
+        // In Lua, function calls need consecutive registers: func, arg1, arg2, ...
+        // Reserve consecutive registers for the call
+        Size total_needed = 1 + arg_expressions.size();
+        Register call_base = register_allocator_.reserve_registers(total_needed);
+
+        // Move function to call position
+        expression_to_register(func_expr, call_base);
+
+        // Move arguments to call positions
+        for (Size i = 0; i < arg_expressions.size(); ++i) {
+            expression_to_register(arg_expressions[i], call_base + 1 + static_cast<Register>(i));
+        }
+
+        // Emit CALL instruction
+        Size arg_count = arg_expressions.size();
+        emitter_.emit_abc(OpCode::OP_CALL, call_base, static_cast<Register>(arg_count + 1), 2);
+
+        // Free the argument registers (but keep the function register for the result)
+        for (Size i = 1; i < total_needed; ++i) {
+            register_allocator_.free_register(call_base + static_cast<Register>(i), register_allocator_.local_count());
+        }
+
+        // Set result expression - the result is in call_base
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = call_base;
+        current_expression_ = result_expr;
     }
 
     void CodeGenerator::visit(const frontend::BlockStatement& node) {
@@ -633,19 +729,19 @@ namespace rangelua::backend {
         CODEGEN_LOG_DEBUG("Generating code for assignment statement");
 
         // Generate code for all values first
-        std::vector<Register> value_registers;
+        std::vector<ExpressionDesc> value_expressions;
         for (const auto& value : node.values()) {
             value->accept(*this);
-            if (current_result_register_.has_value()) {
-                value_registers.push_back(current_result_register_.value());
+            if (current_expression_.has_value()) {
+                value_expressions.push_back(current_expression_.value());
             }
         }
 
         // Assign to targets
         Size value_index = 0;
         for (const auto& target : node.targets()) {
-            if (value_index < value_registers.size()) {
-                Register value_reg = value_registers[value_index];
+            if (value_index < value_expressions.size()) {
+                ExpressionDesc value_expr = value_expressions[value_index];
 
                 // Handle different target types
                 if (auto identifier =
@@ -654,42 +750,62 @@ namespace rangelua::backend {
                     auto resolution = scope_manager_.resolve_variable(identifier->name());
 
                     switch (resolution.type) {
-                        case ScopeManager::VariableResolution::Type::Local:
+                        case ScopeManager::VariableResolution::Type::Local: {
                             // Local variable assignment
+                            Register value_reg = expression_to_any_register(value_expr);
                             emitter_.emit_abc(OpCode::OP_MOVE, resolution.index, value_reg, 0);
+                            free_expression(value_expr);
                             break;
-                        case ScopeManager::VariableResolution::Type::Upvalue:
+                        }
+                        case ScopeManager::VariableResolution::Type::Upvalue: {
                             // Upvalue assignment
+                            Register value_reg = expression_to_any_register(value_expr);
                             emitter_.emit_abc(OpCode::OP_SETUPVAL, value_reg, resolution.index, 0);
+                            free_expression(value_expr);
                             break;
-                        case ScopeManager::VariableResolution::Type::Global:
+                        }
+                        case ScopeManager::VariableResolution::Type::Global: {
                             // Global variable assignment using _ENV upvalue
+                            Register value_reg = expression_to_any_register(value_expr);
                             Size const_index = emitter_.add_constant(identifier->name());
                             emitter_.emit_abc(OpCode::OP_SETTABUP,
                                               0,
                                               static_cast<Register>(const_index),
                                               value_reg);
+                            free_expression(value_expr);
                             break;
+                        }
                     }
                 } else if (auto table_access =
                                dynamic_cast<const frontend::TableAccessExpression*>(target.get())) {
                     // Table assignment - generate table and key
                     table_access->table().accept(*this);
-                    Register table_reg = current_result_register_.value_or(0);
+                    if (!current_expression_.has_value()) {
+                        CODEGEN_LOG_ERROR("Table expression did not produce result");
+                        continue;
+                    }
+                    ExpressionDesc table_expr = current_expression_.value();
 
                     table_access->key().accept(*this);
-                    Register key_reg = current_result_register_.value_or(0);
+                    if (!current_expression_.has_value()) {
+                        CODEGEN_LOG_ERROR("Key expression did not produce result");
+                        continue;
+                    }
+                    ExpressionDesc key_expr = current_expression_.value();
+
+                    // Convert to registers
+                    Register table_reg = expression_to_any_register(table_expr);
+                    Register key_reg = expression_to_any_register(key_expr);
+                    Register value_reg = expression_to_any_register(value_expr);
 
                     // Emit SETTABLE instruction
                     emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, key_reg, value_reg);
 
                     // Free temporary registers
-                    register_allocator_.free(table_reg);
-                    register_allocator_.free(key_reg);
+                    free_expressions(table_expr, key_expr);
+                    free_expression(value_expr);
                 }
 
-                // Free the value register
-                register_allocator_.free(value_reg);
                 value_index++;
             }
         }
@@ -700,7 +816,14 @@ namespace rangelua::backend {
 
         // Generate condition
         node.condition().accept(*this);
-        Register condition_reg = current_result_register_.value_or(0);
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Condition expression did not produce result");
+            return;
+        }
+        ExpressionDesc condition_expr = current_expression_.value();
+
+        // Convert condition to register
+        Register condition_reg = expression_to_any_register(condition_expr);
 
         // Test condition and jump if false
         emitter_.emit_abc(OpCode::OP_TEST, condition_reg, 0, 0);
@@ -729,7 +852,7 @@ namespace rangelua::backend {
         }
 
         // Free condition register
-        register_allocator_.free(condition_reg);
+        free_expression(condition_expr);
     }
 
     void CodeGenerator::visit(const frontend::Program& node) {
@@ -761,6 +884,41 @@ namespace rangelua::backend {
         scope_manager_.exit_scope();
 
         CODEGEN_LOG_DEBUG("Program code generation completed");
+    }
+
+    // Helper method implementations
+    bool CodeGenerator::try_constant_folding(frontend::BinaryOpExpression::Operator op,
+                                             ExpressionDesc& e1,
+                                             const ExpressionDesc& e2) {
+        // For now, implement basic constant folding for integers
+        if (e1.kind == ExpressionKind::KINT && e2.kind == ExpressionKind::KINT) {
+            switch (op) {
+                case frontend::BinaryOpExpression::Operator::Add:
+                    e1.u.ival += e2.u.ival;
+                    return true;
+                case frontend::BinaryOpExpression::Operator::Subtract:
+                    e1.u.ival -= e2.u.ival;
+                    return true;
+                case frontend::BinaryOpExpression::Operator::Multiply:
+                    e1.u.ival *= e2.u.ival;
+                    return true;
+                case frontend::BinaryOpExpression::Operator::IntegerDivide:
+                    if (e2.u.ival != 0) {
+                        e1.u.ival /= e2.u.ival;
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        return false;
+    }
+
+    void CodeGenerator::resolve_pending_gotos() {
+        // Implementation for resolving goto statements
+        // For now, just clear the list
+        pending_gotos_.clear();
     }
 
     // New AST visitor implementations
@@ -1590,148 +1748,6 @@ namespace rangelua::backend {
         return emitter_;
     }
 
-    // Helper method implementations
-    Register CodeGenerator::emit_load_constant(const frontend::LiteralExpression::Value& value) {
-        auto reg_result = register_allocator_.allocate();
-        if (is_error(reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for constant");
-            return 0;
-        }
-
-        Register result_reg = get_value(reg_result);
-
-        // Generate appropriate load instruction based on literal type
-        std::visit(
-            [this, result_reg, &value](const auto& val) {
-                using T = std::decay_t<decltype(val)>;
-                if constexpr (std::is_same_v<T, std::monostate>) {
-                    emitter_.emit_abc(OpCode::OP_LOADNIL, result_reg, 0, 0);
-                } else if constexpr (std::is_same_v<T, bool>) {
-                    if (val) {
-                        emitter_.emit_abc(OpCode::OP_LOADTRUE, result_reg, 0, 0);
-                    } else {
-                        emitter_.emit_abc(OpCode::OP_LOADFALSE, result_reg, 0, 0);
-                    }
-                } else if constexpr (std::is_same_v<T, Int>) {
-                    if (val >= -32768 && val <= 32767) {
-                        emitter_.emit_asbx(
-                            OpCode::OP_LOADI, result_reg, static_cast<std::int32_t>(val));
-                    } else {
-                        Size const_index = add_constant(value);
-                        emitter_.emit_abx(
-                            OpCode::OP_LOADK, result_reg, static_cast<std::uint32_t>(const_index));
-                    }
-                } else {
-                    Size const_index = add_constant(value);
-                    emitter_.emit_abx(
-                        OpCode::OP_LOADK, result_reg, static_cast<std::uint32_t>(const_index));
-                }
-            },
-            value);
-
-        return result_reg;
-    }
-
-    Register CodeGenerator::emit_binary_operation(frontend::BinaryOpExpression::Operator op,
-                                                  Register left,
-                                                  Register right) {
-        auto reg_result = register_allocator_.allocate();
-        if (is_error(reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for binary operation");
-            return 0;
-        }
-
-        Register result_reg = get_value(reg_result);
-
-        switch (op) {
-            case frontend::BinaryOpExpression::Operator::Add:
-                emitter_.emit_abc(OpCode::OP_ADD, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::Subtract:
-                emitter_.emit_abc(OpCode::OP_SUB, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::Multiply:
-                emitter_.emit_abc(OpCode::OP_MUL, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::Divide:
-                emitter_.emit_abc(OpCode::OP_DIV, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::IntegerDivide:
-                emitter_.emit_abc(OpCode::OP_IDIV, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::Modulo:
-                emitter_.emit_abc(OpCode::OP_MOD, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::Power:
-                emitter_.emit_abc(OpCode::OP_POW, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::BitwiseAnd:
-                emitter_.emit_abc(OpCode::OP_BAND, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::BitwiseOr:
-                emitter_.emit_abc(OpCode::OP_BOR, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::BitwiseXor:
-                emitter_.emit_abc(OpCode::OP_BXOR, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::ShiftLeft:
-                emitter_.emit_abc(OpCode::OP_SHL, result_reg, left, right);
-                break;
-            case frontend::BinaryOpExpression::Operator::ShiftRight:
-                emitter_.emit_abc(OpCode::OP_SHR, result_reg, left, right);
-                break;
-            default:
-                CODEGEN_LOG_ERROR("Unsupported binary operator in helper");
-                break;
-        }
-
-        return result_reg;
-    }
-
-    Register CodeGenerator::emit_unary_operation(frontend::UnaryOpExpression::Operator op,
-                                                 Register operand) {
-        auto reg_result = register_allocator_.allocate();
-        if (is_error(reg_result)) {
-            CODEGEN_LOG_ERROR("Failed to allocate register for unary operation");
-            return 0;
-        }
-
-        Register result_reg = get_value(reg_result);
-
-        switch (op) {
-            case frontend::UnaryOpExpression::Operator::Minus:
-                emitter_.emit_abc(OpCode::OP_UNM, result_reg, operand, 0);
-                break;
-            case frontend::UnaryOpExpression::Operator::Not:
-                emitter_.emit_abc(OpCode::OP_NOT, result_reg, operand, 0);
-                break;
-            case frontend::UnaryOpExpression::Operator::Length:
-                emitter_.emit_abc(OpCode::OP_LEN, result_reg, operand, 0);
-                break;
-            case frontend::UnaryOpExpression::Operator::BitwiseNot:
-                emitter_.emit_abc(OpCode::OP_BNOT, result_reg, operand, 0);
-                break;
-            default:
-                CODEGEN_LOG_ERROR("Unsupported unary operator in helper");
-                break;
-        }
-
-        return result_reg;
-    }
-
-    void CodeGenerator::emit_assignment(Register target, Register source) {
-        emitter_.emit_abc(OpCode::OP_MOVE, target, source, 0);
-    }
-
-    void CodeGenerator::emit_conditional_jump(Register condition, Size target) {
-        emitter_.emit_abc(OpCode::OP_TEST, condition, 0, 0);
-        if (target == 0) {
-            jump_manager_.emit_jump();
-        } else {
-            jump_manager_.emit_jump(target);
-        }
-    }
-
     Size CodeGenerator::add_constant(const frontend::LiteralExpression::Value& value) {
         // Convert frontend literal value to bytecode constant value
         ConstantValue constant_value = to_constant_value(value);
@@ -1853,14 +1869,7 @@ namespace rangelua::backend {
         CODEGEN_LOG_DEBUG("Emitted forward goto to label '{}' at jump {}", label, jump_index);
     }
 
-    void CodeGenerator::resolve_pending_gotos() {
-        // Check for any unresolved gotos at the end of compilation
-        if (!pending_gotos_.empty()) {
-            for (const auto& pending : pending_gotos_) {
-                CODEGEN_LOG_ERROR("Unresolved goto to label '{}'", pending.first);
-            }
-        }
-    }
+
 
     // CodeGenContext implementation
     CodeGenContext::CodeGenContext(CodeGenerator& generator) : generator_(generator) {}

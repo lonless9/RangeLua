@@ -19,71 +19,150 @@
 namespace rangelua::backend {
 
     /**
-     * @brief Register allocation and management
+     * @brief Expression descriptor types (similar to Lua 5.5's expdesc)
      *
-     * This class has COMPLETE control over register allocation, lifetime management,
-     * and reuse. The parser should NEVER touch register allocation logic.
+     * These represent different ways an expression's value can be stored/accessed
+     */
+    enum class ExpressionKind {
+        VOID,      // No value (empty expression list)
+        NIL,       // Constant nil
+        TRUE,      // Constant true
+        FALSE,     // Constant false
+        KINT,      // Integer constant (immediate)
+        KFLT,      // Float constant (immediate)
+        KSTR,      // String constant (immediate)
+        K,         // Constant in constant table
+        NONRELOC,  // Value in fixed register
+        RELOC,     // Value can be relocated to any register
+        LOCAL,     // Local variable
+        UPVAL,     // Upvalue
+        GLOBAL,    // Global variable
+        INDEXED,   // Table access t[k]
+        CALL,      // Function call result
+        VARARG     // Vararg expression
+    };
+
+    /**
+     * @brief Expression descriptor (similar to Lua 5.5's expdesc)
+     *
+     * Represents an expression and how its value is stored/accessed
+     */
+    struct ExpressionDesc {
+        ExpressionKind kind = ExpressionKind::VOID;
+
+        union {
+            Int ival;               // For KINT
+            Number nval;            // For KFLT
+            Size info;              // Generic info (register, constant index, etc.)
+            struct {                // For indexed access
+                Register table;     // Table register
+                Register key;       // Key register or constant index
+                bool is_const_key;  // True if key is constant
+            } indexed;
+        } u{};
+
+        // Jump lists for conditional expressions
+        std::vector<Size> true_list;   // Jump when true
+        std::vector<Size> false_list;  // Jump when false
+
+        ExpressionDesc() = default;
+        explicit ExpressionDesc(ExpressionKind k) : kind(k) {}
+    };
+
+    /**
+     * @brief Register allocation and management (Lua 5.5 style)
+     *
+     * This class implements Lua 5.5's register allocation strategy:
+     * - Uses freereg pointer for efficient allocation
+     * - Supports immediate register reuse
+     * - Tracks local variable registers separately
+     * - Optimizes for expression evaluation patterns
      */
     class RegisterAllocator {
     public:
         explicit RegisterAllocator(Size max_registers = 255);
 
         /**
-         * @brief Allocate a new register
-         * @return Register index or error if no registers available
+         * @brief Reserve n registers starting from freereg
+         * @param n Number of registers to reserve
+         * @return Starting register index
          */
-        Result<Register> allocate();
+        Register reserve_registers(Size n);
 
         /**
-         * @brief Allocate a specific register
-         * @param reg Desired register
-         * @return Success or error if register unavailable
+         * @brief Get next free register without allocating
+         * @return Next free register index
          */
-        Status allocate_specific(Register reg);
+        [[nodiscard]] Register next_free() const noexcept { return free_reg_; }
 
         /**
-         * @brief Free a register for reuse
+         * @brief Free register if it's not a local variable
          * @param reg Register to free
+         * @param local_count Number of local variables (registers 0..local_count-1 are locals)
          */
-        void free(Register reg);
+        void free_register(Register reg, Size local_count);
 
         /**
-         * @brief Reserve a register (cannot be allocated)
-         * @param reg Register to reserve
+         * @brief Free two registers in proper order
+         * @param r1 First register
+         * @param r2 Second register
+         * @param local_count Number of local variables
          */
-        void reserve(Register reg);
+        void free_registers(Register r1, Register r2, Size local_count);
 
         /**
-         * @brief Get the highest allocated register
-         * @return Highest register in use
+         * @brief Check and update stack size
+         * @param needed Number of additional registers needed
          */
-        [[nodiscard]] Register high_water_mark() const noexcept;
+        void check_stack(Size needed);
 
         /**
-         * @brief Get number of allocated registers
-         * @return Number of registers in use
+         * @brief Get the highest used register (stack size)
+         * @return Maximum stack size needed
          */
-        [[nodiscard]] Size allocated_count() const noexcept;
-
-        /**
-         * @brief Check if register is allocated
-         * @param reg Register to check
-         * @return true if allocated
-         */
-        [[nodiscard]] bool is_allocated(Register reg) const noexcept;
+        [[nodiscard]] Register stack_size() const noexcept { return max_stack_size_; }
 
         /**
          * @brief Reset allocator state
          */
         void reset();
 
+        /**
+         * @brief Set number of local variables (affects which registers can be freed)
+         * @param count Number of local variables
+         */
+        void set_local_count(Size count) noexcept { local_count_ = count; }
+
+        /**
+         * @brief Get number of local variables
+         * @return Number of local variables
+         */
+        [[nodiscard]] Size local_count() const noexcept { return local_count_; }
+
+        // Temporary compatibility methods for migration
+        /**
+         * @brief Allocate a single register (compatibility method)
+         * @return Register index or error
+         */
+        Result<Register> allocate();
+
+        /**
+         * @brief Free a register (compatibility method)
+         * @param reg Register to free
+         */
+        void free(Register reg);
+
+        /**
+         * @brief Get high water mark (compatibility method)
+         * @return Maximum stack size reached
+         */
+        [[nodiscard]] Register high_water_mark() const noexcept;
+
     private:
         Size max_registers_;
-        std::vector<bool> allocated_;
-        std::vector<bool> reserved_;
-        std::stack<Register> free_list_;
-        Register next_register_;
-        Register high_water_;
+        Register free_reg_;        // First free register (Lua's freereg)
+        Register max_stack_size_;  // Maximum stack size reached
+        Size local_count_;         // Number of local variables
     };
 
     /**
@@ -339,7 +418,10 @@ namespace rangelua::backend {
         JumpManager jump_manager_;
         ScopeManager scope_manager_;
 
-        // Current expression result register (for visitor pattern)
+        // Current expression result (for visitor pattern)
+        Optional<ExpressionDesc> current_expression_;
+
+        // Temporary compatibility member for migration
         Optional<Register> current_result_register_;
 
         // Loop context management
@@ -360,14 +442,35 @@ namespace rangelua::backend {
         std::vector<LabelInfo> labels_;
         std::vector<std::pair<String, Size>> pending_gotos_;  // label name, jump index
 
+        // Expression management methods (Lua 5.5 style)
+        void discharge_vars(ExpressionDesc& expr);
+        void discharge_to_register(ExpressionDesc& expr, Register reg);
+        void discharge_to_any_register(ExpressionDesc& expr);
+        Register expression_to_any_register(ExpressionDesc& expr);
+        Register expression_to_next_register(ExpressionDesc& expr);
+        void expression_to_register(ExpressionDesc& expr, Register reg);
+        void free_expression(ExpressionDesc& expr);
+        void free_expressions(ExpressionDesc& e1, ExpressionDesc& e2);
+
+        // Constant and optimization methods
+        bool try_constant_folding(frontend::BinaryOpExpression::Operator op,
+                                  ExpressionDesc& e1,
+                                  const ExpressionDesc& e2);
+        bool expression_to_constant(ExpressionDesc& expr);
+        Size add_constant(const frontend::LiteralExpression::Value& value);
+
         // Helper methods
-        Register emit_load_constant(const frontend::LiteralExpression::Value& value);
-        Register emit_binary_operation(frontend::BinaryOpExpression::Operator op,
-                                       Register left,
-                                       Register right);
-        Register emit_unary_operation(frontend::UnaryOpExpression::Operator op, Register operand);
-        void emit_assignment(Register target, Register source);
-        void emit_conditional_jump(Register condition, Size target);
+        void emit_load_constant(ExpressionDesc& expr,
+                                const frontend::LiteralExpression::Value& value);
+        void emit_binary_operation(ExpressionDesc& result,
+                                   frontend::BinaryOpExpression::Operator op,
+                                   ExpressionDesc& left,
+                                   ExpressionDesc& right);
+        void emit_unary_operation(ExpressionDesc& result,
+                                  frontend::UnaryOpExpression::Operator op,
+                                  ExpressionDesc& operand);
+        void emit_assignment(const ExpressionDesc& target, ExpressionDesc& source);
+        void emit_conditional_jump(ExpressionDesc& condition, Size target);
 
         // Loop context helpers
         void enter_loop(Size loop_start);
@@ -380,9 +483,6 @@ namespace rangelua::backend {
         void define_label(const String& name);
         void emit_goto(const String& label);
         void resolve_pending_gotos();
-
-        // Constant management
-        Size add_constant(const frontend::LiteralExpression::Value& value);
     };
 
     /**

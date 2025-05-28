@@ -285,6 +285,26 @@ namespace rangelua::backend {
                 break;
             }
 
+            case OpCode::OP_CALL:
+            case OpCode::OP_TAILCALL: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_GETTABUP:
+            case OpCode::OP_SETTABUP:
+            case OpCode::OP_GETTABLE:
+            case OpCode::OP_SETTABLE: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " R"
+                    << static_cast<int>(c);
+                break;
+            }
+
             default:
                 oss << " R" << static_cast<int>(a);
                 break;
