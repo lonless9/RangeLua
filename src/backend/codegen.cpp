@@ -182,7 +182,7 @@ namespace rangelua::backend {
     void CodeGenerator::discharge_to_any_register(ExpressionDesc& expr) {
         if (expr.kind != ExpressionKind::NONRELOC) {
             Register reg = register_allocator_.reserve_registers(1);
-            discharge_to_register(expr, reg - 1);
+            discharge_to_register(expr, reg);
         }
     }
 
@@ -194,16 +194,16 @@ namespace rangelua::backend {
         }
         // Use next available register
         Register reg = register_allocator_.reserve_registers(1);
-        discharge_to_register(expr, reg - 1);
-        return reg - 1;
+        discharge_to_register(expr, reg);
+        return reg;
     }
 
     Register CodeGenerator::expression_to_next_register(ExpressionDesc& expr) {
         discharge_vars(expr);
         free_expression(expr);
         Register reg = register_allocator_.reserve_registers(1);
-        discharge_to_register(expr, reg - 1);
-        return reg - 1;
+        discharge_to_register(expr, reg);
+        return reg;
     }
 
     void CodeGenerator::expression_to_register(ExpressionDesc& expr, Register reg) {
@@ -546,7 +546,7 @@ namespace rangelua::backend {
         Register right_reg = expression_to_any_register(right_expr);
 
         // Allocate register for result
-        Register result_reg = register_allocator_.reserve_registers(1) - 1;
+        Register result_reg = register_allocator_.reserve_registers(1);
 
         // Generate appropriate instruction based on operator
         switch (node.operator_type()) {
@@ -761,7 +761,7 @@ namespace rangelua::backend {
         Register operand_reg = expression_to_any_register(operand_expr);
 
         // Allocate register for result
-        Register result_reg = register_allocator_.reserve_registers(1) - 1;
+        Register result_reg = register_allocator_.reserve_registers(1);
 
         // Generate appropriate instruction based on operator
         switch (node.operator_type()) {
