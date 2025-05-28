@@ -952,7 +952,9 @@ namespace rangelua::backend {
     void CodeGenerator::visit(const frontend::IfStatement& node) {
         CODEGEN_LOG_DEBUG("Generating code for if statement");
 
-        // Generate condition
+        std::vector<Size> end_jumps;  // Collect all jumps to the end
+
+        // Generate main if condition
         node.condition().accept(*this);
         if (!current_expression_.has_value()) {
             CODEGEN_LOG_ERROR("Condition expression did not produce result");
@@ -965,32 +967,70 @@ namespace rangelua::backend {
 
         // Test condition and jump if false
         emitter_.emit_abc(OpCode::OP_TEST, condition_reg, 0, 0);
-        Size false_jump = jump_manager_.emit_jump();  // Forward jump to else/end
+        Size false_jump = jump_manager_.emit_jump();  // Forward jump to next condition/else/end
 
         // Generate then block
         node.then_body().accept(*this);
 
-        Size end_jump = 0;
-        if (node.else_body()) {
-            // Jump over else block
-            end_jump = jump_manager_.emit_jump();
-        }
-
-        // Patch false jump to here (else block or end)
-        Size else_start = jump_manager_.current_instruction();
-        jump_manager_.patch_jump(false_jump, else_start);
-
-        // Generate else block if present
-        if (node.else_body()) {
-            node.else_body()->accept(*this);
-
-            // Patch end jump
-            Size end_pos = jump_manager_.current_instruction();
-            jump_manager_.patch_jump(end_jump, end_pos);
+        // Jump to end after then block (unless this is the last block)
+        if (!node.elseif_clauses().empty() || node.else_body()) {
+            end_jumps.push_back(jump_manager_.emit_jump());
         }
 
         // Free condition register
         free_expression(condition_expr);
+
+        // Process each elseif clause
+        for (const auto& elseif_clause : node.elseif_clauses()) {
+            // Patch the previous false jump to here
+            Size elseif_start = jump_manager_.current_instruction();
+            jump_manager_.patch_jump(false_jump, elseif_start);
+
+            // Generate elseif condition
+            elseif_clause.condition->accept(*this);
+            if (!current_expression_.has_value()) {
+                CODEGEN_LOG_ERROR("ElseIf condition expression did not produce result");
+                return;
+            }
+            ExpressionDesc elseif_condition_expr = current_expression_.value();
+
+            // Convert condition to register
+            Register elseif_condition_reg = expression_to_any_register(elseif_condition_expr);
+
+            // Test condition and jump if false
+            emitter_.emit_abc(OpCode::OP_TEST, elseif_condition_reg, 0, 0);
+            false_jump = jump_manager_.emit_jump();  // Forward jump to next condition/else/end
+
+            // Generate elseif body
+            elseif_clause.body->accept(*this);
+
+            // Jump to end after elseif body (unless this is the last block)
+            if (node.else_body() || &elseif_clause != &node.elseif_clauses().back()) {
+                end_jumps.push_back(jump_manager_.emit_jump());
+            }
+
+            // Free condition register
+            free_expression(elseif_condition_expr);
+        }
+
+        // Generate else block if present
+        if (node.else_body()) {
+            // Patch the last false jump to here (else block)
+            Size else_start = jump_manager_.current_instruction();
+            jump_manager_.patch_jump(false_jump, else_start);
+
+            node.else_body()->accept(*this);
+        } else {
+            // No else block, patch the last false jump to the end
+            Size end_pos = jump_manager_.current_instruction();
+            jump_manager_.patch_jump(false_jump, end_pos);
+        }
+
+        // Patch all end jumps to here
+        Size final_end = jump_manager_.current_instruction();
+        for (Size end_jump : end_jumps) {
+            jump_manager_.patch_jump(end_jump, final_end);
+        }
     }
 
     void CodeGenerator::visit(const frontend::Program& node) {
