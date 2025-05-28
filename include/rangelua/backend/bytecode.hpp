@@ -196,6 +196,37 @@ namespace rangelua::backend {
     };
 
     /**
+     * @brief Upvalue descriptor for closure creation
+     */
+    struct UpvalueDescriptor {
+        String name;         // Name of the upvalue
+        bool in_stack;       // True if upvalue refers to local variable in enclosing function
+        std::uint8_t index;  // Index in stack (if in_stack) or upvalue array (if not)
+
+        UpvalueDescriptor() : in_stack(false), index(0) {}
+        UpvalueDescriptor(String name, bool in_stack, std::uint8_t index)
+            : name(std::move(name)), in_stack(in_stack), index(index) {}
+    };
+
+    /**
+     * @brief Function prototype for nested functions
+     */
+    struct FunctionPrototype {
+        String name;
+        std::vector<Instruction> instructions;
+        std::vector<ConstantValue> constants;
+        std::vector<String> locals;
+        std::vector<UpvalueDescriptor> upvalue_descriptors;
+        Size parameter_count = 0;
+        Size stack_size = 0;
+        bool is_vararg = false;
+
+        // Debug information
+        std::vector<Size> line_info;
+        String source_name;
+    };
+
+    /**
      * @brief Bytecode function representation
      */
     struct BytecodeFunction {
@@ -203,7 +234,9 @@ namespace rangelua::backend {
         std::vector<Instruction> instructions;
         std::vector<ConstantValue> constants;
         std::vector<String> locals;
-        std::vector<String> upvalues;
+        std::vector<String> upvalues;  // Legacy: upvalue names for compatibility
+        std::vector<UpvalueDescriptor> upvalue_descriptors;  // New: detailed upvalue info
+        std::vector<FunctionPrototype> prototypes;           // Nested function prototypes
         Size parameter_count = 0;
         Size stack_size = 0;
         bool is_vararg = false;
@@ -287,10 +320,23 @@ namespace rangelua::backend {
         Size add_local(const String& name);
 
         /**
-         * @brief Add upvalue
+         * @brief Add upvalue (legacy)
          * @return Upvalue index
          */
         Size add_upvalue(const String& name);
+
+        /**
+         * @brief Add upvalue descriptor
+         * @return Upvalue descriptor index
+         */
+        Size add_upvalue_descriptor(const String& name, bool in_stack, std::uint8_t index);
+        Size add_upvalue_descriptor(const UpvalueDescriptor& descriptor);
+
+        /**
+         * @brief Add function prototype
+         * @return Prototype index
+         */
+        Size add_prototype(const FunctionPrototype& prototype);
 
         /**
          * @brief Set function parameters

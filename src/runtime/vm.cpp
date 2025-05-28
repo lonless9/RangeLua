@@ -333,20 +333,38 @@ namespace rangelua::runtime {
 
     Value VirtualMachine::get_upvalue(UpvalueIndex index) const {
         if (!call_stack_.empty() && call_stack_.back().function) {
-            // Get the current function's upvalues
-            // This would need to be implemented when we have proper closure support
-            // For now, just return nil
-            VM_LOG_DEBUG("GETUPVAL: upvalue[{}] (not fully implemented)", index);
+            const auto& frame = call_stack_.back();
+
+            // Check if we have a closure with upvalues
+            if (frame.closure && index < frame.closure->upvalueCount()) {
+                auto upvalue = frame.closure->getUpvalue(index);
+                if (upvalue) {
+                    VM_LOG_DEBUG(
+                        "GETUPVAL: upvalue[{}] = {}", index, upvalue->getValue().debug_string());
+                    return upvalue->getValue();
+                }
+            }
+
+            VM_LOG_DEBUG("GETUPVAL: upvalue[{}] not found, returning nil", index);
         }
         return Value{};
     }
 
     void VirtualMachine::set_upvalue(UpvalueIndex index, const Value& value) {
         if (!call_stack_.empty() && call_stack_.back().function) {
-            // Set the current function's upvalue
-            // This would need to be implemented when we have proper closure support
-            [[maybe_unused]] const Value& val = value;
-            VM_LOG_DEBUG("SETUPVAL: upvalue[{}] = value (not fully implemented)", index);
+            const auto& frame = call_stack_.back();
+
+            // Check if we have a closure with upvalues
+            if (frame.closure && index < frame.closure->upvalueCount()) {
+                auto upvalue = frame.closure->getUpvalue(index);
+                if (upvalue) {
+                    upvalue->setValue(value);
+                    VM_LOG_DEBUG("SETUPVAL: upvalue[{}] = {}", index, value.debug_string());
+                    return;
+                }
+            }
+
+            VM_LOG_DEBUG("SETUPVAL: upvalue[{}] not found, ignoring", index);
         } else {
             VM_LOG_DEBUG("SETUPVAL: No current function, ignoring");
         }

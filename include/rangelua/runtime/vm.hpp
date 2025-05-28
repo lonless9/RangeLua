@@ -31,6 +31,7 @@ namespace rangelua::runtime {
      */
     struct CallFrame {
         const backend::BytecodeFunction* function = nullptr;
+        GCPtr<Function> closure;  // Closure for upvalue access (default constructed to empty)
         Size instruction_pointer = 0;
         Size stack_base = 0;
         Size local_count = 0;
@@ -39,6 +40,11 @@ namespace rangelua::runtime {
         CallFrame() = default;
         CallFrame(const backend::BytecodeFunction* func, Size stack_base, Size locals)
             : function(func), stack_base(stack_base), local_count(locals) {}
+        CallFrame(const backend::BytecodeFunction* func,
+                  const GCPtr<Function>& closure,
+                  Size stack_base,
+                  Size locals)
+            : function(func), closure(closure), stack_base(stack_base), local_count(locals) {}
     };
 
     /**

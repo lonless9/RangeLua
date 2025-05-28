@@ -483,6 +483,26 @@ namespace rangelua::runtime {
             return Value(std::move(function_ptr));
         }
 
+        Value closure(const std::vector<Instruction>& bytecode, Size paramCount) {
+            auto function_ptr = makeGCObject<Function>(bytecode, paramCount);
+            function_ptr->makeClosure();
+            return Value(std::move(function_ptr));
+        }
+
+        Value closure(const std::vector<Instruction>& bytecode,
+                      const std::vector<Value>& upvalues,
+                      Size paramCount) {
+            auto function_ptr = makeGCObject<Function>(bytecode, paramCount);
+            function_ptr->makeClosure();
+
+            // Add upvalues as closed upvalues
+            for (const auto& upvalue : upvalues) {
+                function_ptr->addUpvalue(upvalue);
+            }
+
+            return Value(std::move(function_ptr));
+        }
+
         Value userdata(void* ptr, const String& type_name) {
             // For now, assume the size is unknown - this should be improved
             auto userdata_ptr = makeGCObject<Userdata>(ptr, 0, type_name);

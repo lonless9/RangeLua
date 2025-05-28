@@ -175,6 +175,24 @@ namespace rangelua::backend {
         return index;
     }
 
+    Size
+    BytecodeEmitter::add_upvalue_descriptor(const String& name, bool in_stack, std::uint8_t index) {
+        UpvalueDescriptor descriptor(name, in_stack, index);
+        return add_upvalue_descriptor(descriptor);
+    }
+
+    Size BytecodeEmitter::add_upvalue_descriptor(const UpvalueDescriptor& descriptor) {
+        Size index = function_.upvalue_descriptors.size();
+        function_.upvalue_descriptors.push_back(descriptor);
+        return index;
+    }
+
+    Size BytecodeEmitter::add_prototype(const FunctionPrototype& prototype) {
+        Size index = function_.prototypes.size();
+        function_.prototypes.push_back(prototype);
+        return index;
+    }
+
     void BytecodeEmitter::set_parameter_count(Size count) {
         function_.parameter_count = count;
     }
