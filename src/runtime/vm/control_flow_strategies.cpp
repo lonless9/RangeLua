@@ -79,11 +79,54 @@ namespace rangelua::runtime {
         return context.return_from_function(return_count);
     }
 
-    // Placeholder implementations for other control flow strategies
-    Status TailCallStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                          [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("TAILCALL: Not fully implemented");
-        return std::monostate{};
+    // TailCallStrategy implementation
+    Status TailCallStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register b = backend::InstructionEncoder::decode_b(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        const Value& function = context.stack_at(a);
+
+        VM_LOG_DEBUG("TAILCALL: return R[{}](R[{}], ... ,R[{}])", a, a + 1, a + b - 1);
+
+        if (!function.is_function()) {
+            VM_LOG_ERROR("Attempt to call a {} value", function.type_name());
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        // Prepare arguments
+        std::vector<Value> args;
+        Size arg_count = (b == 0) ? (context.stack_size() - a - 1) : (b - 1);
+
+        args.reserve(arg_count);
+        for (Size i = 0; i < arg_count; ++i) {
+            args.push_back(context.stack_at(a + 1 + i));
+        }
+
+        // For tail call, we replace the current call frame
+        // This is a simplified implementation - proper tail call optimization
+        // would reuse the current stack frame
+        std::vector<Value> results;
+        auto call_result = context.call_function(function, args, results);
+        if (is_error(call_result)) {
+            return call_result;
+        }
+
+        // Return all results from the tail call
+        Size result_count = (c == 0) ? results.size() : (c - 1);
+
+        // Move results to the beginning of the current frame
+        for (Size i = 0; i < result_count && i < results.size(); ++i) {
+            context.stack_at(a + i) = std::move(results[i]);
+        }
+
+        // Fill remaining slots with nil if needed
+        for (Size i = results.size(); i < result_count; ++i) {
+            context.stack_at(a + i) = Value{};
+        }
+
+        // Return from current function with the tail call results
+        return context.return_from_function(result_count);
     }
 
     Status Return0Strategy::execute_impl(IVMContext& context,
@@ -178,33 +221,139 @@ namespace rangelua::runtime {
         return std::monostate{};
     }
 
-    Status TForPrepStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                          [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("TFORPREP: Not fully implemented");
+    // TForPrepStrategy implementation - prepare generic for loop
+    Status TForPrepStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::uint32_t bx = backend::InstructionEncoder::decode_bx(instruction);
+
+        VM_LOG_DEBUG("TFORPREP: prepare iterator; if not to run then pc+={}", bx + 1);
+
+        // R[A] = iterator function, R[A+1] = state, R[A+2] = control variable
+        const Value& iterator = context.stack_at(a);
+        [[maybe_unused]] const Value& state = context.stack_at(a + 1);
+        [[maybe_unused]] const Value& control = context.stack_at(a + 2);
+
+        // Check if iterator is callable
+        if (!iterator.is_function()) {
+            VM_LOG_DEBUG("TFORPREP: Iterator is not a function, skipping loop");
+            context.adjust_instruction_pointer(static_cast<std::int32_t>(bx + 1));
+        }
+
+        // Iterator setup is complete, continue to TFORCALL
         return std::monostate{};
     }
 
-    Status TForCallStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                          [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("TFORCALL: Not fully implemented");
+    // TForCallStrategy implementation - call iterator function
+    Status TForCallStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        Register c = backend::InstructionEncoder::decode_c(instruction);
+
+        VM_LOG_DEBUG("TFORCALL: R[{}], ... ,R[{}] := R[{}](R[{}], R[{}])",
+                     a + 4, a + 3 + c, a, a + 1, a + 2);
+
+        // R[A] = iterator function, R[A+1] = state, R[A+2] = control variable
+        const Value& iterator = context.stack_at(a);
+        const Value& state = context.stack_at(a + 1);
+        const Value& control = context.stack_at(a + 2);
+
+        if (!iterator.is_function()) {
+            VM_LOG_ERROR("Attempt to call a {} value in generic for loop", iterator.type_name());
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        // Prepare arguments: state and control variable
+        std::vector<Value> args = {state, control};
+        std::vector<Value> results;
+
+        auto call_result = context.call_function(iterator, args, results);
+        if (is_error(call_result)) {
+            return call_result;
+        }
+
+        // Store results in R[A+4], R[A+5], ..., R[A+3+C]
+        Size result_count = std::min(static_cast<Size>(c), results.size());
+        for (Size i = 0; i < result_count; ++i) {
+            context.stack_at(a + 4 + i) = std::move(results[i]);
+        }
+
+        // Fill remaining slots with nil
+        for (Size i = result_count; i < c; ++i) {
+            context.stack_at(a + 4 + i) = Value{};
+        }
+
+        // Update control variable with first result (if any)
+        if (!results.empty() && !results[0].is_nil()) {
+            context.stack_at(a + 2) = results[0];
+        }
+
         return std::monostate{};
     }
 
-    Status TForLoopStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                          [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("TFORLOOP: Not fully implemented");
+    // TForLoopStrategy implementation - check loop continuation
+    Status TForLoopStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+        std::uint32_t bx = backend::InstructionEncoder::decode_bx(instruction);
+
+        VM_LOG_DEBUG("TFORLOOP: if R[{}] ~= nil then {{ R[{}] := R[{}]; pc -= {} }}",
+                     a + 4, a + 2, a + 4, bx);
+
+        // Check if the first iterator result is not nil
+        const Value& first_result = context.stack_at(a + 4);
+
+        if (!first_result.is_nil()) {
+            // Continue loop: update control variable and jump back
+            context.stack_at(a + 2) = first_result;
+            context.adjust_instruction_pointer(-static_cast<std::int32_t>(bx));
+        }
+        // If nil, loop ends and execution continues
+
         return std::monostate{};
     }
 
-    Status CloseStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                       [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("CLOSE: Not fully implemented");
+    // CloseStrategy implementation - close upvalues
+    Status CloseStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+
+        VM_LOG_DEBUG("CLOSE: close all upvalues >= R[{}]", a);
+
+        // Close all upvalues that refer to stack positions >= R[A]
+        // This is typically called when leaving a scope that has local variables
+        // that are captured by closures
+
+        // For now, this is a simplified implementation
+        // A full implementation would need to:
+        // 1. Find all open upvalues that point to stack[A] or higher
+        // 2. Close them by copying their values and marking them as closed
+        // 3. Update the upvalue chain
+
+        // Since we don't have a full upvalue management system yet,
+        // we'll just log the operation
+        VM_LOG_DEBUG("CLOSE: Closing upvalues from register {} onwards", a);
+
         return std::monostate{};
     }
 
-    Status TbcStrategy::execute_impl([[maybe_unused]] IVMContext& context,
-                                     [[maybe_unused]] Instruction instruction) {
-        VM_LOG_DEBUG("TBC: Not fully implemented");
+    // TbcStrategy implementation - mark variable as "to be closed"
+    Status TbcStrategy::execute_impl(IVMContext& context, Instruction instruction) {
+        Register a = backend::InstructionEncoder::decode_a(instruction);
+
+        VM_LOG_DEBUG("TBC: mark variable R[{}] as 'to be closed'", a);
+
+        // Mark the variable at R[A] as "to be closed"
+        // This is used for Lua 5.4+ to-be-closed variables (local <close> x)
+        // When the variable goes out of scope, its __close metamethod is called
+
+        const Value& value = context.stack_at(a);
+
+        // For now, this is a simplified implementation
+        // A full implementation would:
+        // 1. Check if the value has a __close metamethod
+        // 2. Mark it in a to-be-closed list
+        // 3. Call the metamethod when the variable goes out of scope
+
+        VM_LOG_DEBUG("TBC: Variable at R[{}] ({}) marked as to-be-closed",
+                     a, value.type_name());
+
         return std::monostate{};
     }
 
