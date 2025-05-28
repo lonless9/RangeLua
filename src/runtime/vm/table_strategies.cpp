@@ -99,17 +99,20 @@ namespace rangelua::runtime {
         Register b = backend::InstructionEncoder::decode_b(instruction);
         Register c = backend::InstructionEncoder::decode_c(instruction);
 
-        VM_LOG_DEBUG("SETTABUP: UpValue[{}][R[{}]] := R[{}]", a, b, c);
+        VM_LOG_DEBUG("SETTABUP: UpValue[{}][K[{}]] := R[{}]", a, b, c);
 
-        // For now, implement as global variable assignment
-        const Value& key = context.stack_at(b);
+        // For now, implement as global variable assignment since we don't have proper _ENV upvalue
+        // In Lua 5.5, SETTABUP is: UpValue[A][K[B]] := R[C]
+        // A = upvalue index (0 for _ENV), B = constant index for key, C = value register
+        Value constant = context.get_constant(b);
         const Value& value = context.stack_at(c);
 
-        if (key.is_string()) {
-            auto string_result = key.to_string();
+        if (constant.is_string()) {
+            auto string_result = constant.to_string();
             if (is_success(string_result)) {
                 String name = get_value(string_result);
                 context.set_global(name, value);
+                VM_LOG_DEBUG("SETTABUP: Set global '{}' = {}", name, value.debug_string());
             }
         }
 
