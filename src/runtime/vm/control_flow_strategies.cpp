@@ -146,14 +146,19 @@ namespace rangelua::runtime {
     // ForLoopStrategy implementation - numeric for loop
     Status ForLoopStrategy::execute_impl(IVMContext& context, Instruction instruction) {
         Register a = backend::InstructionEncoder::decode_a(instruction);
-        std::uint32_t bx = backend::InstructionEncoder::decode_bx(instruction);
+        std::int32_t sbx = backend::InstructionEncoder::decode_sbx(instruction);
 
-        VM_LOG_DEBUG("FORLOOP: update counters; if loop continues then pc-={}", bx);
+        VM_LOG_DEBUG("FORLOOP: update counters; if loop continues then pc-={}", -sbx);
 
         // R[A] = index, R[A+1] = limit, R[A+2] = step, R[A+3] = loop variable
         Value& index = context.stack_at(a);
         const Value& limit = context.stack_at(a + 1);
         const Value& step = context.stack_at(a + 2);
+
+        VM_LOG_DEBUG("FORLOOP: Before update - index={}, limit={}, step={}",
+                     index.debug_string(),
+                     limit.debug_string(),
+                     step.debug_string());
 
         // Update index: index = index + step
         Value new_index = index + step;
@@ -163,6 +168,7 @@ namespace rangelua::runtime {
         }
 
         index = new_index;
+        VM_LOG_DEBUG("FORLOOP: After update - index={}", index.debug_string());
 
         // Check if loop should continue
         bool continue_loop = false;
@@ -181,13 +187,25 @@ namespace rangelua::runtime {
                 } else {
                     continue_loop = (index_val >= limit_val);
                 }
+
+                VM_LOG_DEBUG("FORLOOP: step_val={}, index_val={}, limit_val={}, continue={}",
+                             step_val,
+                             index_val,
+                             limit_val,
+                             continue_loop);
             }
         }
 
         if (continue_loop) {
             // Copy index to loop variable and jump back
             context.stack_at(a + 3) = index;
-            context.adjust_instruction_pointer(-static_cast<std::int32_t>(bx));
+            VM_LOG_DEBUG("FORLOOP: Set loop variable R[{}] = {}, jumping back by {}",
+                         a + 3,
+                         index.debug_string(),
+                         -sbx);
+            context.adjust_instruction_pointer(sbx);
+        } else {
+            VM_LOG_DEBUG("FORLOOP: Loop finished, continuing to next instruction");
         }
 
         return std::monostate{};
@@ -196,15 +214,19 @@ namespace rangelua::runtime {
     // ForPrepStrategy implementation - prepare numeric for loop
     Status ForPrepStrategy::execute_impl(IVMContext& context, Instruction instruction) {
         Register a = backend::InstructionEncoder::decode_a(instruction);
-        std::uint32_t bx = backend::InstructionEncoder::decode_bx(instruction);
+        std::int32_t sbx = backend::InstructionEncoder::decode_sbx(instruction);
 
-        VM_LOG_DEBUG("FORPREP: check values and prepare counters; if not to run then pc+={}",
-                     bx + 1);
+        VM_LOG_DEBUG("FORPREP: check values and prepare counters; if not to run then pc+={}", sbx);
 
         // R[A] = initial value, R[A+1] = limit, R[A+2] = step
         Value& initial = context.stack_at(a);
         const Value& limit = context.stack_at(a + 1);
         const Value& step = context.stack_at(a + 2);
+
+        VM_LOG_DEBUG("FORPREP: initial={}, limit={}, step={}",
+                     initial.debug_string(),
+                     limit.debug_string(),
+                     step.debug_string());
 
         // Convert to numbers if needed
         if (!initial.is_number() || !limit.is_number() || !step.is_number()) {
@@ -212,14 +234,51 @@ namespace rangelua::runtime {
             return ErrorCode::TYPE_ERROR;
         }
 
-        // Subtract step from initial value (will be added back in first FORLOOP)
-        Value adjusted_initial = initial - step;
-        if (adjusted_initial.is_nil()) {
-            VM_LOG_ERROR("Invalid for loop: cannot subtract step from initial value");
+        // Check for zero step
+        auto step_result = step.to_number();
+        if (is_error(step_result)) {
+            VM_LOG_ERROR("Invalid for loop: step is not a valid number");
+            return ErrorCode::TYPE_ERROR;
+        }
+        Number step_val = get_value(step_result);
+        if (step_val == 0.0) {
+            VM_LOG_ERROR("Invalid for loop: step is zero");
             return ErrorCode::TYPE_ERROR;
         }
 
-        initial = adjusted_initial;
+        // Check if loop should run at all
+        auto initial_result = initial.to_number();
+        auto limit_result = limit.to_number();
+        if (is_error(initial_result) || is_error(limit_result)) {
+            VM_LOG_ERROR("Invalid for loop: initial or limit is not a valid number");
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        Number initial_val = get_value(initial_result);
+        Number limit_val = get_value(limit_result);
+
+        // Check if loop should be skipped
+        bool skip_loop = false;
+        if (step_val > 0) {
+            skip_loop = (initial_val > limit_val);
+        } else {
+            skip_loop = (initial_val < limit_val);
+        }
+
+        if (skip_loop) {
+            VM_LOG_DEBUG("FORPREP: Loop condition not met, skipping to pc+{}", sbx);
+            context.adjust_instruction_pointer(sbx);
+            return std::monostate{};
+        }
+
+        // In Lua 5.5, FORPREP doesn't adjust the initial value
+        // Instead, it sets up the loop variable and jumps to FORLOOP
+        // The FORLOOP instruction handles the increment and test
+
+        // Set the loop variable to the initial value for the first iteration
+        context.stack_at(a + 3) = Value(initial_val);
+        VM_LOG_DEBUG("FORPREP: Set loop variable R[{}] = {}", a + 3, initial_val);
+
         return std::monostate{};
     }
 

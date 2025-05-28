@@ -205,6 +205,8 @@ namespace rangelua::api {
         // Register basic library functions directly using set_global
         set_global("print", runtime::value_factory::function(stdlib::basic::print));
         set_global("type", runtime::value_factory::function(stdlib::basic::type));
+        set_global("ipairs", runtime::value_factory::function(stdlib::basic::ipairs));
+        set_global("pairs", runtime::value_factory::function(stdlib::basic::pairs));
 
         logger()->debug("Basic library functions registered");
         logger()->debug("Standard library setup complete");

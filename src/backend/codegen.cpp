@@ -493,6 +493,11 @@ namespace rangelua::backend {
         // Resolve the variable
         auto resolution = scope_manager_.resolve_variable(node.name());
 
+        CODEGEN_LOG_DEBUG("Variable '{}' resolved as: type={}, index={}",
+                          node.name(),
+                          static_cast<int>(resolution.type),
+                          resolution.index);
+
         ExpressionDesc expr;
 
         switch (resolution.type) {
@@ -500,16 +505,21 @@ namespace rangelua::backend {
                 // Local variable - already in register
                 expr.kind = ExpressionKind::LOCAL;
                 expr.u.info = resolution.index;
+                CODEGEN_LOG_DEBUG(
+                    "Local variable '{}' in register R[{}]", node.name(), resolution.index);
                 break;
             case ScopeManager::VariableResolution::Type::Upvalue:
                 // Upvalue - will be loaded when discharged
                 expr.kind = ExpressionKind::UPVAL;
                 expr.u.info = resolution.index;
+                CODEGEN_LOG_DEBUG("Upvalue '{}' at index {}", node.name(), resolution.index);
                 break;
             case ScopeManager::VariableResolution::Type::Global:
                 // Global variable - will be loaded when discharged
                 expr.kind = ExpressionKind::GLOBAL;
                 expr.u.info = emitter_.add_constant(node.name());
+                CODEGEN_LOG_DEBUG(
+                    "Global variable '{}' with constant index {}", node.name(), expr.u.info);
                 break;
         }
 
@@ -1666,8 +1676,10 @@ namespace rangelua::backend {
 
         // Emit FORLOOP instruction (increments and tests)
         Size loop_end = jump_manager_.current_instruction();
+        // FORLOOP should jump back to the instruction after FORPREP (loop body start)
+        Size loop_body_start = loop_start + 1;
         std::int32_t loop_offset =
-            static_cast<std::int32_t>(loop_start) - static_cast<std::int32_t>(loop_end) - 1;
+            static_cast<std::int32_t>(loop_body_start) - static_cast<std::int32_t>(loop_end) - 1;
         emitter_.emit_asbx(OpCode::OP_FORLOOP, start_reg, loop_offset);
 
         // Patch the FORPREP instruction to jump to after the loop

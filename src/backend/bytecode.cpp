@@ -285,6 +285,20 @@ namespace rangelua::backend {
                 break;
             }
 
+            case OpCode::OP_FORPREP:
+            case OpCode::OP_FORLOOP: {
+                std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
+                oss << " R" << static_cast<int>(a) << " " << sbx;
+                break;
+            }
+
+            case OpCode::OP_TFORPREP:
+            case OpCode::OP_TFORLOOP: {
+                std::uint32_t bx = InstructionEncoder::decode_bx(instr);
+                oss << " R" << static_cast<int>(a) << " " << bx;
+                break;
+            }
+
             case OpCode::OP_CALL:
             case OpCode::OP_TAILCALL: {
                 Register b = InstructionEncoder::decode_b(instr);
@@ -294,8 +308,20 @@ namespace rangelua::backend {
                 break;
             }
 
-            case OpCode::OP_GETTABUP:
-            case OpCode::OP_SETTABUP:
+            case OpCode::OP_GETTABUP: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " K"
+                    << static_cast<int>(c);
+                break;
+            }
+            case OpCode::OP_SETTABUP: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " " << static_cast<int>(a) << " K" << static_cast<int>(b) << " R"
+                    << static_cast<int>(c);
+                break;
+            }
             case OpCode::OP_GETTABLE:
             case OpCode::OP_SETTABLE: {
                 Register b = InstructionEncoder::decode_b(instr);
@@ -416,6 +442,24 @@ namespace rangelua::backend {
                 return "TEST";
             case OpCode::OP_TESTSET:
                 return "TESTSET";
+            case OpCode::OP_FORLOOP:
+                return "FORLOOP";
+            case OpCode::OP_FORPREP:
+                return "FORPREP";
+            case OpCode::OP_TFORPREP:
+                return "TFORPREP";
+            case OpCode::OP_TFORCALL:
+                return "TFORCALL";
+            case OpCode::OP_TFORLOOP:
+                return "TFORLOOP";
+            case OpCode::OP_CLOSE:
+                return "CLOSE";
+            case OpCode::OP_TBC:
+                return "TBC";
+            case OpCode::OP_RETURN0:
+                return "RETURN0";
+            case OpCode::OP_RETURN1:
+                return "RETURN1";
             default:
                 return "UNKNOWN";
         }
