@@ -30,7 +30,7 @@ namespace rangelua::api {
     public:
         explicit State();
         explicit State(const StateConfig& config);
-        ~State() = default;
+        ~State();
 
         // Non-copyable, movable
         State(const State&) = delete;
@@ -126,6 +126,11 @@ namespace rangelua::api {
          * @brief Setup standard library functions
          */
         void setup_standard_library();
+
+        /**
+         * @brief Cleanup state resources and break circular references
+         */
+        void cleanup();
     };
 
 }  // namespace rangelua::api

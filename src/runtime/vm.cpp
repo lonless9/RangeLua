@@ -30,6 +30,11 @@ namespace rangelua::runtime {
         // Initialize strategy registry
         strategy_registry_ = InstructionStrategyFactory::create_registry();
 
+        // Initialize environment system
+        registry_ = std::make_unique<Registry>();
+        auto global_table = registry_->getGlobalTable();
+        environment_ = std::make_unique<Environment>(global_table);
+
         stack_.reserve(config_.stack_size);
         call_stack_.reserve(config_.call_stack_size);
     }
@@ -38,6 +43,11 @@ namespace rangelua::runtime {
         : config_(config), memory_manager_(&memory_manager) {
         // Initialize strategy registry
         strategy_registry_ = InstructionStrategyFactory::create_registry();
+
+        // Initialize environment system
+        registry_ = std::make_unique<Registry>();
+        auto global_table = registry_->getGlobalTable();
+        environment_ = std::make_unique<Environment>(global_table);
 
         stack_.reserve(config_.stack_size);
         call_stack_.reserve(config_.call_stack_size);
@@ -188,7 +198,12 @@ namespace rangelua::runtime {
         state_ = VMState::Ready;
         stack_.clear();
         call_stack_.clear();
-        globals_.clear();
+
+        // Reset environment system
+        registry_ = std::make_unique<Registry>();
+        auto global_table = registry_->getGlobalTable();
+        environment_ = std::make_unique<Environment>(global_table);
+
         stack_top_ = 0;
         last_error_ = ErrorCode::SUCCESS;
     }
@@ -251,12 +266,17 @@ namespace rangelua::runtime {
     }
 
     Value VirtualMachine::get_global(const String& name) const {
-        auto it = globals_.find(name);
-        return it != globals_.end() ? it->second : Value{};
+        if (!environment_) {
+            return Value{};
+        }
+        return environment_->getGlobal(name);
     }
 
     void VirtualMachine::set_global(const String& name, Value value) {
-        globals_[name] = std::move(value);
+        if (!environment_) {
+            return;
+        }
+        environment_->setGlobal(name, std::move(value));
     }
 
     // IVMContext interface implementation
@@ -451,6 +471,29 @@ namespace rangelua::runtime {
 
         // Create call frame with proper stack base
         CallFrame frame(&function, stack_top_ - arg_count, function.parameter_count);
+
+        // For main chunks (top-level functions), create a closure with _ENV as upvalue[0]
+        if (call_stack_.empty() && environment_) {
+            // This is the main chunk - create a closure with _ENV upvalue
+            // Create a minimal function with empty bytecode for the closure
+            std::vector<Instruction> empty_bytecode;
+            auto main_closure = makeGCObject<Function>(empty_bytecode, 0);
+            main_closure->makeClosure();  // Convert to closure
+
+            // Create _ENV upvalue pointing to the global table
+            auto global_table = environment_->getGlobalTable();
+            if (global_table) {
+                Value env_value(global_table);
+                auto env_upvalue = makeGCObject<Upvalue>(env_value);
+                main_closure->addUpvalue(env_upvalue);
+
+                VM_LOG_DEBUG(
+                    "Created main chunk closure with _ENV upvalue pointing to global table");
+            }
+
+            frame.closure = main_closure;
+        }
+
         call_stack_.push_back(frame);
 
         // Initialize local variables beyond parameters to nil
@@ -493,6 +536,17 @@ namespace rangelua::runtime {
         // RANGELUA_DEBUG_PRINT("VM State: " + std::to_string(static_cast<int>(state_)));
         // RANGELUA_DEBUG_PRINT("Stack size: " + std::to_string(stack_.size()));
         // RANGELUA_DEBUG_PRINT("Call stack depth: " + std::to_string(call_stack_.size()));
+    }
+
+    GCPtr<Table> VirtualMachine::get_global_table() const {
+        if (!environment_) {
+            return GCPtr<Table>{};
+        }
+        return environment_->getGlobalTable();
+    }
+
+    Registry* VirtualMachine::get_registry() const noexcept {
+        return registry_.get();
     }
 
     void VirtualMachine::trigger_runtime_error(const String& message) {

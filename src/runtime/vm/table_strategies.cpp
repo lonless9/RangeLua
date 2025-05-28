@@ -73,21 +73,41 @@ namespace rangelua::runtime {
 
         VM_LOG_DEBUG("GETTABUP: R[{}] := UpValue[{}][K[{}]]", a, b, c);
 
-        // For now, implement as global variable access since we don't have proper _ENV upvalue
-        // setup
-        Value constant = context.get_constant(c);
-        if (constant.is_string()) {
-            auto string_result = constant.to_string();
-            if (is_success(string_result)) {
-                String name = get_value(string_result);
-                Value value = context.get_global(name);
-                context.stack_at(a) = std::move(value);
-                VM_LOG_DEBUG("GETTABUP: Loaded global '{}' = {}", name, value.debug_string());
+        // In Lua 5.5, GETTABUP is: R[A] := UpValue[B][K[C]]
+        // B = upvalue index (0 for _ENV), C = constant index for key
+
+        // Get the upvalue (should be _ENV for global access)
+        Value upvalue = context.get_upvalue(static_cast<UpvalueIndex>(b));
+        Value key = context.get_constant(c);
+
+        if (upvalue.is_table()) {
+            // Proper table access through _ENV upvalue
+            Value result = upvalue.get(key);
+            context.stack_at(a) = std::move(result);
+
+            if (key.is_string()) {
+                auto string_result = key.to_string();
+                if (is_success(string_result)) {
+                    String name = get_value(string_result);
+                    VM_LOG_DEBUG(
+                        "GETTABUP: Loaded from _ENV '{}' = {}", name, result.debug_string());
+                }
+            }
+        } else {
+            // Fallback to global variable access for compatibility
+            if (key.is_string()) {
+                auto string_result = key.to_string();
+                if (is_success(string_result)) {
+                    String name = get_value(string_result);
+                    Value value = context.get_global(name);
+                    context.stack_at(a) = std::move(value);
+                    VM_LOG_DEBUG("GETTABUP: Fallback global '{}' = {}", name, value.debug_string());
+                } else {
+                    context.stack_at(a) = Value{};
+                }
             } else {
                 context.stack_at(a) = Value{};
             }
-        } else {
-            context.stack_at(a) = Value{};
         }
 
         return std::monostate{};
@@ -101,18 +121,34 @@ namespace rangelua::runtime {
 
         VM_LOG_DEBUG("SETTABUP: UpValue[{}][K[{}]] := R[{}]", a, b, c);
 
-        // For now, implement as global variable assignment since we don't have proper _ENV upvalue
         // In Lua 5.5, SETTABUP is: UpValue[A][K[B]] := R[C]
         // A = upvalue index (0 for _ENV), B = constant index for key, C = value register
-        Value constant = context.get_constant(b);
+
+        // Get the upvalue (should be _ENV for global access)
+        Value upvalue = context.get_upvalue(static_cast<UpvalueIndex>(a));
+        Value key = context.get_constant(b);
         const Value& value = context.stack_at(c);
 
-        if (constant.is_string()) {
-            auto string_result = constant.to_string();
-            if (is_success(string_result)) {
-                String name = get_value(string_result);
-                context.set_global(name, value);
-                VM_LOG_DEBUG("SETTABUP: Set global '{}' = {}", name, value.debug_string());
+        if (upvalue.is_table()) {
+            // Proper table assignment through _ENV upvalue
+            upvalue.set(key, value);
+
+            if (key.is_string()) {
+                auto string_result = key.to_string();
+                if (is_success(string_result)) {
+                    String name = get_value(string_result);
+                    VM_LOG_DEBUG("SETTABUP: Set in _ENV '{}' = {}", name, value.debug_string());
+                }
+            }
+        } else {
+            // Fallback to global variable assignment for compatibility
+            if (key.is_string()) {
+                auto string_result = key.to_string();
+                if (is_success(string_result)) {
+                    String name = get_value(string_result);
+                    context.set_global(name, value);
+                    VM_LOG_DEBUG("SETTABUP: Fallback global '{}' = {}", name, value.debug_string());
+                }
             }
         }
 

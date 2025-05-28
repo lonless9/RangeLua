@@ -16,6 +16,7 @@
 #include "../core/concepts.hpp"
 #include "../core/error.hpp"
 #include "../core/types.hpp"
+#include "environment.hpp"
 #include "memory.hpp"
 #include "value.hpp"
 #include "vm/instruction_strategy.hpp"
@@ -279,6 +280,16 @@ namespace rangelua::runtime {
         const VMConfig& config() const noexcept { return config_; }
 
         /**
+         * @brief Get global table from environment
+         */
+        GCPtr<Table> get_global_table() const;
+
+        /**
+         * @brief Get environment registry
+         */
+        Registry* get_registry() const noexcept;
+
+        /**
          * @brief Trigger runtime error for testing
          */
         void trigger_runtime_error(const String& message);
@@ -297,7 +308,10 @@ namespace rangelua::runtime {
         // Execution state
         std::vector<Value> stack_;
         std::vector<CallFrame> call_stack_;
-        std::unordered_map<String, Value> globals_;
+
+        // Environment and global table management
+        std::unique_ptr<Registry> registry_;
+        std::unique_ptr<Environment> environment_;
 
         // Upvalue management
         class Upvalue* open_upvalues_ = nullptr;  // Linked list of open upvalues

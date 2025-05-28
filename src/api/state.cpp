@@ -43,6 +43,12 @@ namespace rangelua::api {
         logger()->debug("State initialization complete with config");
     }
 
+    State::~State() {
+        logger()->debug("Destroying RangeLua state");
+        cleanup();
+        logger()->debug("State destruction complete");
+    }
+
     Result<std::vector<runtime::Value>> State::execute(StringView code, String name) {
         logger()->debug("Executing code: {} ({})", name, code.size());
 
@@ -179,6 +185,14 @@ namespace rangelua::api {
         // Setup basic global variables
         set_global("_VERSION", runtime::Value("RangeLua 0.1.0"));
 
+        // Set up _G to point to the global table itself (Lua convention)
+        // This creates a self-reference in the global table
+        auto global_table = vm_.get_global_table();
+        if (global_table) {
+            set_global("_G", runtime::Value(global_table));
+            logger()->debug("_G self-reference established");
+        }
+
         // Setup standard library
         setup_standard_library();
 
@@ -194,6 +208,44 @@ namespace rangelua::api {
 
         logger()->debug("Basic library functions registered");
         logger()->debug("Standard library setup complete");
+    }
+
+    void State::cleanup() {
+        logger()->debug("Starting state cleanup");
+
+        // Step 1: Break circular references in global table
+        // Remove _G self-reference to break the cycle
+        auto global_table = vm_.get_global_table();
+        if (global_table) {
+            logger()->debug("Breaking _G circular reference");
+            runtime::Value key("_G");
+            global_table->remove(key);
+        }
+
+        // Step 2: Clear all global variables to release references
+        logger()->debug("Clearing global variables");
+        if (global_table) {
+            // Clear standard library functions
+            global_table->remove(runtime::Value("print"));
+            global_table->remove(runtime::Value("type"));
+            global_table->remove(runtime::Value("_VERSION"));
+        }
+
+        // Step 3: Reset VM state to clean up environment and registry
+        logger()->debug("Resetting VM state");
+        vm_.reset();
+
+        // Step 4: Force garbage collection to clean up remaining objects
+        logger()->debug("Triggering garbage collection");
+        auto gc_result = runtime::getGarbageCollector();
+        if (is_success(gc_result)) {
+            [[maybe_unused]] auto* gc = get_value(gc_result);
+            // Note: collect() is protected, so we'll rely on automatic cleanup
+            // during object destruction and reference counting
+            logger()->debug("Garbage collector available for cleanup");
+        }
+
+        logger()->debug("State cleanup completed");
     }
 
 }  // namespace rangelua::api
