@@ -39,28 +39,30 @@ namespace rangelua::runtime {
 
         // Prepare arguments
         std::vector<Value> args;
-        Size arg_count = (b == 0) ? (context.stack_size() - a - 1) : (b - 1);
+        Size arg_count = (b == 0) ? context.stack_size() - a - 1 : b - 1;
 
-        args.reserve(arg_count);
+        VM_LOG_DEBUG("Preparing {} arguments for function call", arg_count);
         for (Size i = 0; i < arg_count; ++i) {
             args.push_back(context.stack_at(a + 1 + i));
         }
 
-        // Call the function
+        // Call the function through the VM context
         std::vector<Value> results;
-        auto call_result = context.call_function(function, args, results);
-        if (is_error(call_result)) {
-            return call_result;
+        auto call_status = context.call_function(function, args, results);
+        if (std::holds_alternative<ErrorCode>(call_status)) {
+            VM_LOG_ERROR("Function call failed");
+            return std::get<ErrorCode>(call_status);
         }
 
-        Size result_count = (c == 0) ? results.size() : (c - 1);
-
         // Store results
+        Size result_count = (c == 0) ? results.size() : c - 1;
+        VM_LOG_DEBUG("Storing {} results from function call", result_count);
+
         for (Size i = 0; i < result_count && i < results.size(); ++i) {
             context.stack_at(a + i) = std::move(results[i]);
         }
 
-        // Fill remaining slots with nil if needed
+        // Fill remaining result slots with nil if needed
         for (Size i = results.size(); i < result_count; ++i) {
             context.stack_at(a + i) = Value{};
         }

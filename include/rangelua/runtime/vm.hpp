@@ -326,6 +326,10 @@ namespace rangelua::runtime {
         // Stack operations
         void ensure_stack_size(Size size);
 
+        // Function call implementations
+        Result<std::vector<Value>> call_lua_function(GCPtr<Function> function,
+                                                     const std::vector<Value>& args);
+
         // Legacy call operations (for backward compatibility)
         Status call_function(const Value& function, Size arg_count, Size result_count);
 

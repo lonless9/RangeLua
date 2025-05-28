@@ -151,14 +151,36 @@ namespace rangelua::runtime {
                 return ErrorCode::TYPE_ERROR;
             }
 
-            // Use the Value's call method which handles different function types
-            auto call_result = function.call(args);
-            if (is_error(call_result)) {
-                VM_LOG_ERROR("Function call failed");
-                return get_error(call_result);
+            // Get the function pointer from the Value
+            auto function_result = function.to_function();
+            if (is_error(function_result)) {
+                VM_LOG_ERROR("Failed to extract function from value");
+                return get_error(function_result);
             }
 
-            return get_value(call_result);
+            auto function_ptr = get_value(function_result);
+
+            // Handle C functions directly
+            if (function_ptr->isCFunction()) {
+                VM_LOG_DEBUG("Calling C function with {} arguments", args.size());
+                try {
+                    auto result = function_ptr->call(args);
+                    return result;
+                } catch (const std::exception& e) {
+                    VM_LOG_ERROR("C function call failed: {}", e.what());
+                    return ErrorCode::RUNTIME_ERROR;
+                }
+            }
+
+            // Handle Lua functions through VM execution
+            if (function_ptr->isLuaFunction() || function_ptr->isClosure()) {
+                VM_LOG_DEBUG("Calling Lua function/closure with {} arguments", args.size());
+                return call_lua_function(function_ptr, args);
+            }
+
+            VM_LOG_ERROR("Unknown function type");
+            return ErrorCode::TYPE_ERROR;
+
         } catch (const Exception& e) {
             VM_LOG_ERROR("Exception in function call: {}", e.what());
             return e.code();
@@ -414,6 +436,61 @@ namespace rangelua::runtime {
 
         VM_LOG_DEBUG("Returned from function with {} results", result_count);
         return std::monostate{};
+    }
+
+    Result<std::vector<Value>> VirtualMachine::call_lua_function(GCPtr<Function> function,
+                                                                 const std::vector<Value>& args) {
+        if (!function) {
+            VM_LOG_ERROR("Null function pointer");
+            return ErrorCode::RUNTIME_ERROR;
+        }
+
+        if (!function->isLuaFunction() && !function->isClosure()) {
+            VM_LOG_ERROR("Function is not a Lua function or closure");
+            return ErrorCode::TYPE_ERROR;
+        }
+
+        try {
+            // For now, we'll create a simple bytecode function wrapper
+            // In a full implementation, this would integrate with the bytecode system
+            backend::BytecodeFunction bytecode_func;
+            bytecode_func.name = "lua_function";
+            bytecode_func.parameter_count = function->parameterCount();
+            bytecode_func.stack_size = 16;  // Default stack size
+            bytecode_func.instructions = function->bytecode();
+
+            // Setup call frame for the function
+            auto setup_result = setup_call_frame(bytecode_func, args.size());
+            if (std::holds_alternative<ErrorCode>(setup_result)) {
+                VM_LOG_ERROR("Failed to setup call frame for Lua function");
+                return std::get<ErrorCode>(setup_result);
+            }
+
+            // Push arguments onto stack
+            for (const auto& arg : args) {
+                push(arg);
+            }
+
+            // If this is a closure, setup upvalues
+            if (function->isClosure()) {
+                VM_LOG_DEBUG("Setting up closure with {} upvalues", function->upvalueCount());
+                // The upvalues would be handled by the closure creation process
+                // For now, we'll just log this
+            }
+
+            // Execute the function
+            auto exec_result = execute(bytecode_func, args);
+            if (is_error(exec_result)) {
+                VM_LOG_ERROR("Failed to execute Lua function");
+                return get_error(exec_result);
+            }
+
+            return get_value(exec_result);
+
+        } catch (const std::exception& e) {
+            VM_LOG_ERROR("Exception in Lua function call: {}", e.what());
+            return ErrorCode::RUNTIME_ERROR;
+        }
     }
 
     // Private helper methods

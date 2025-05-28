@@ -353,9 +353,13 @@ namespace rangelua::runtime {
         auto num = coerce_to_number(*this);
 
         if (std::holds_alternative<Number>(num)) {
-            // Convert to unsigned integer for bitwise operations
-            auto uint_val = static_cast<UInt>(std::get<Number>(num));
-            return Value(static_cast<Number>(~uint_val));
+            // Convert to signed integer, perform bitwise NOT, keep as signed
+            // Following Lua 5.5 implementation: intop(^, ~l_castS2U(0), v1)
+            auto int_val = static_cast<Int>(std::get<Number>(num));
+            auto uint_val = static_cast<UInt>(int_val);
+            auto result_uint = ~uint_val;
+            auto result_int = static_cast<Int>(result_uint);
+            return Value(static_cast<Number>(result_int));
         }
 
         return Value{};

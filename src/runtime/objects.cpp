@@ -413,9 +413,11 @@ namespace rangelua::runtime {
         if (isCFunction()) {
             return cFunction_(args);
         }
-        // For Lua functions, this would need VM integration
-        // For now, return empty result
-        return {};
+
+        // For Lua functions, we need VM integration
+        // This is a placeholder that should be called through the VM
+        // The actual execution should happen in the VM's call mechanism
+        throw std::runtime_error("Lua function calls must be executed through the VM");
     }
 
     void Function::traverse(std::function<void(GCObject*)> visitor) {

@@ -595,7 +595,7 @@ namespace rangelua::frontend {
                         advance();
                         return {TokenType::NotEqual, "~=", start_location};
                     }
-                    return {TokenType::BitwiseXor, "~", start_location};
+                    return {TokenType::BitwiseNot, "~", start_location};
                 case '<':
                     if (current() == '=') {
                         advance();

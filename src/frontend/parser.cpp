@@ -1501,6 +1501,8 @@ namespace rangelua::frontend {
                     return Precedence::BitwiseOr;
                 case TokenType::BitwiseXor:
                     return Precedence::BitwiseXor;
+                case TokenType::BitwiseNot:  // In binary context, ~ is XOR
+                    return Precedence::BitwiseXor;
                 case TokenType::BitwiseAnd:
                     return Precedence::BitwiseAnd;
                 case TokenType::ShiftLeft:
@@ -1549,6 +1551,7 @@ namespace rangelua::frontend {
                 case TokenType::BitwiseAnd:
                 case TokenType::BitwiseOr:
                 case TokenType::BitwiseXor:
+                case TokenType::BitwiseNot:  // Can be binary XOR in context
                 case TokenType::ShiftLeft:
                 case TokenType::ShiftRight:
                     return true;
@@ -1608,6 +1611,8 @@ namespace rangelua::frontend {
                 case TokenType::BitwiseOr:
                     return BinaryOpExpression::Operator::BitwiseOr;
                 case TokenType::BitwiseXor:
+                    return BinaryOpExpression::Operator::BitwiseXor;
+                case TokenType::BitwiseNot:  // In binary context, ~ is XOR
                     return BinaryOpExpression::Operator::BitwiseXor;
                 case TokenType::ShiftLeft:
                     return BinaryOpExpression::Operator::ShiftLeft;
