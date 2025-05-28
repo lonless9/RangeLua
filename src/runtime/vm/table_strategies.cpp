@@ -71,9 +71,10 @@ namespace rangelua::runtime {
         Register b = backend::InstructionEncoder::decode_b(instruction);
         Register c = backend::InstructionEncoder::decode_c(instruction);
 
-        VM_LOG_DEBUG("GETTABUP: R[{}] := UpValue[{}][R[{}]]", a, b, c);
+        VM_LOG_DEBUG("GETTABUP: R[{}] := UpValue[{}][K[{}]]", a, b, c);
 
-        // For now, implement as global variable access
+        // For now, implement as global variable access since we don't have proper _ENV upvalue
+        // setup
         Value constant = context.get_constant(c);
         if (constant.is_string()) {
             auto string_result = constant.to_string();
@@ -81,6 +82,7 @@ namespace rangelua::runtime {
                 String name = get_value(string_result);
                 Value value = context.get_global(name);
                 context.stack_at(a) = std::move(value);
+                VM_LOG_DEBUG("GETTABUP: Loaded global '{}' = {}", name, value.debug_string());
             } else {
                 context.stack_at(a) = Value{};
             }

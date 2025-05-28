@@ -372,8 +372,12 @@ namespace rangelua::backend {
                 return "NOT";
             case OpCode::OP_LEN:
                 return "LEN";
+            case OpCode::OP_GETTABUP:
+                return "GETTABUP";
             case OpCode::OP_GETTABLE:
                 return "GETTABLE";
+            case OpCode::OP_SETTABUP:
+                return "SETTABUP";
             case OpCode::OP_SETTABLE:
                 return "SETTABLE";
             case OpCode::OP_NEWTABLE:
