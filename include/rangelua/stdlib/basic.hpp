@@ -89,6 +89,116 @@ namespace rangelua::stdlib {
         std::vector<runtime::Value> next(const std::vector<runtime::Value>& args);
 
         /**
+         * @brief Lua tostring function implementation
+         *
+         * Converts the given value to a string representation.
+         *
+         * @param args Vector containing the value to convert
+         * @return Vector containing the string representation
+         */
+        std::vector<runtime::Value> tostring(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua tonumber function implementation
+         *
+         * Converts the given value to a number.
+         *
+         * @param args Vector containing the value to convert and optional base
+         * @return Vector containing the number or nil if conversion failed
+         */
+        std::vector<runtime::Value> tonumber(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua getmetatable function implementation
+         *
+         * Returns the metatable of the given value.
+         *
+         * @param args Vector containing the value
+         * @return Vector containing the metatable or nil
+         */
+        std::vector<runtime::Value> getmetatable(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua setmetatable function implementation
+         *
+         * Sets the metatable of the given table.
+         *
+         * @param args Vector containing the table and metatable
+         * @return Vector containing the table
+         */
+        std::vector<runtime::Value> setmetatable(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua rawget function implementation
+         *
+         * Gets a table element without invoking metamethods.
+         *
+         * @param args Vector containing the table and key
+         * @return Vector containing the value
+         */
+        std::vector<runtime::Value> rawget(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua rawset function implementation
+         *
+         * Sets a table element without invoking metamethods.
+         *
+         * @param args Vector containing the table, key, and value
+         * @return Vector containing the table
+         */
+        std::vector<runtime::Value> rawset(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua rawequal function implementation
+         *
+         * Checks equality without invoking metamethods.
+         *
+         * @param args Vector containing two values to compare
+         * @return Vector containing boolean result
+         */
+        std::vector<runtime::Value> rawequal(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua rawlen function implementation
+         *
+         * Gets length without invoking metamethods.
+         *
+         * @param args Vector containing the value
+         * @return Vector containing the length
+         */
+        std::vector<runtime::Value> rawlen(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua select function implementation
+         *
+         * Returns selected arguments from a list.
+         *
+         * @param args Vector containing index and arguments
+         * @return Vector containing selected arguments
+         */
+        std::vector<runtime::Value> select(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua error function implementation
+         *
+         * Raises an error with the given message.
+         *
+         * @param args Vector containing error message and optional level
+         * @return Never returns (throws exception)
+         */
+        std::vector<runtime::Value> error(const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua assert function implementation
+         *
+         * Asserts that a condition is true.
+         *
+         * @param args Vector containing condition and optional message
+         * @return Vector containing the first argument if true
+         */
+        std::vector<runtime::Value> assert_(const std::vector<runtime::Value>& args);
+
+        /**
          * @brief Register basic library functions in the given global table
          *
          * This function registers the implemented basic library functions in the provided

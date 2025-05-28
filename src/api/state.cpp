@@ -11,6 +11,9 @@
 #include <rangelua/frontend/lexer.hpp>
 #include <rangelua/frontend/parser.hpp>
 #include <rangelua/stdlib/basic.hpp>
+#include <rangelua/stdlib/string.hpp>
+#include <rangelua/stdlib/math.hpp>
+#include <rangelua/stdlib/table.hpp>
 #include <rangelua/utils/logger.hpp>
 
 #include <fstream>
@@ -208,8 +211,33 @@ namespace rangelua::api {
         set_global("ipairs", runtime::value_factory::function(stdlib::basic::ipairs));
         set_global("pairs", runtime::value_factory::function(stdlib::basic::pairs));
         set_global("next", runtime::value_factory::function(stdlib::basic::next));
+        set_global("tostring", runtime::value_factory::function(stdlib::basic::tostring));
+        set_global("tonumber", runtime::value_factory::function(stdlib::basic::tonumber));
+        set_global("getmetatable", runtime::value_factory::function(stdlib::basic::getmetatable));
+        set_global("setmetatable", runtime::value_factory::function(stdlib::basic::setmetatable));
+        set_global("rawget", runtime::value_factory::function(stdlib::basic::rawget));
+        set_global("rawset", runtime::value_factory::function(stdlib::basic::rawset));
+        set_global("rawequal", runtime::value_factory::function(stdlib::basic::rawequal));
+        set_global("rawlen", runtime::value_factory::function(stdlib::basic::rawlen));
+        set_global("select", runtime::value_factory::function(stdlib::basic::select));
+        set_global("error", runtime::value_factory::function(stdlib::basic::error));
+        set_global("assert", runtime::value_factory::function(stdlib::basic::assert_));
 
         logger()->debug("Basic library functions registered");
+
+        // Register standard library modules
+        auto global_table = vm_.get_global_table();
+        if (global_table) {
+            stdlib::string::register_functions(global_table);
+            logger()->debug("String library registered");
+
+            stdlib::math::register_functions(global_table);
+            logger()->debug("Math library registered");
+
+            stdlib::table::register_functions(global_table);
+            logger()->debug("Table library registered");
+        }
+
         logger()->debug("Standard library setup complete");
     }
 

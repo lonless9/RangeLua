@@ -195,6 +195,290 @@ namespace rangelua::stdlib::basic {
         };
     }
 
+    std::vector<runtime::Value> tostring(const std::vector<runtime::Value>& args) {
+        if (args.empty()) {
+            return {runtime::Value("nil")};
+        }
+
+        const auto& value = args[0];
+        std::string result;
+
+        if (value.is_nil()) {
+            result = "nil";
+        } else if (value.is_boolean()) {
+            auto bool_result = value.to_boolean();
+            if (std::holds_alternative<bool>(bool_result)) {
+                result = std::get<bool>(bool_result) ? "true" : "false";
+            } else {
+                result = "nil";
+            }
+        } else if (value.is_number()) {
+            auto num_result = value.to_number();
+            if (std::holds_alternative<double>(num_result)) {
+                double num = std::get<double>(num_result);
+                if (num == static_cast<double>(static_cast<Int>(num))) {
+                    result = std::to_string(static_cast<Int>(num));
+                } else {
+                    result = std::to_string(num);
+                    // Remove trailing zeros
+                    result.erase(result.find_last_not_of('0') + 1, std::string::npos);
+                    result.erase(result.find_last_not_of('.') + 1, std::string::npos);
+                }
+            } else {
+                result = "nil";
+            }
+        } else if (value.is_string()) {
+            auto str_result = value.to_string();
+            if (std::holds_alternative<std::string>(str_result)) {
+                result = std::get<std::string>(str_result);
+            } else {
+                result = "nil";
+            }
+        } else {
+            // For other types, use type name with address
+            result = value.type_name();
+        }
+
+        return {runtime::Value(result)};
+    }
+
+    std::vector<runtime::Value> tonumber(const std::vector<runtime::Value>& args) {
+        if (args.empty()) {
+            return {runtime::Value()};  // nil
+        }
+
+        const auto& value = args[0];
+
+        if (value.is_number()) {
+            return {value};  // Already a number
+        }
+
+        if (value.is_string()) {
+            auto str_result = value.to_string();
+            if (std::holds_alternative<std::string>(str_result)) {
+                const std::string& str = std::get<std::string>(str_result);
+
+                // Handle base parameter if provided
+                int base = 10;
+                if (args.size() > 1 && args[1].is_number()) {
+                    auto base_result = args[1].to_number();
+                    if (std::holds_alternative<double>(base_result)) {
+                        base = static_cast<int>(std::get<double>(base_result));
+                        if (base < 2 || base > 36) {
+                            return {runtime::Value()};  // Invalid base
+                        }
+                    }
+                }
+
+                try {
+                    if (base == 10) {
+                        // Try integer first
+                        if (str.find('.') == std::string::npos &&
+                            str.find('e') == std::string::npos &&
+                            str.find('E') == std::string::npos) {
+                            Int int_val = std::stoll(str);
+                            return {runtime::Value(static_cast<Number>(int_val))};
+                        } else {
+                            // Float
+                            double float_val = std::stod(str);
+                            return {runtime::Value(float_val)};
+                        }
+                    } else {
+                        // Non-decimal base
+                        Int int_val = std::stoll(str, nullptr, base);
+                        return {runtime::Value(static_cast<Number>(int_val))};
+                    }
+                } catch (const std::exception&) {
+                    return {runtime::Value()};  // Conversion failed
+                }
+            }
+        }
+
+        return {runtime::Value()};  // nil
+    }
+
+    std::vector<runtime::Value> getmetatable(const std::vector<runtime::Value>& args) {
+        if (args.empty()) {
+            return {runtime::Value()};  // nil
+        }
+
+        // TODO: Implement metatable support when available
+        return {runtime::Value()};  // nil for now
+    }
+
+    std::vector<runtime::Value> setmetatable(const std::vector<runtime::Value>& args) {
+        if (args.size() < 2) {
+            return {runtime::Value()};  // nil
+        }
+
+        // TODO: Implement metatable support when available
+        return {args[0]};  // Return the table for now
+    }
+
+    std::vector<runtime::Value> rawget(const std::vector<runtime::Value>& args) {
+        if (args.size() < 2) {
+            return {runtime::Value()};  // nil
+        }
+
+        const auto& table_value = args[0];
+        const auto& key_value = args[1];
+
+        if (!table_value.is_table()) {
+            return {runtime::Value()};  // nil
+        }
+
+        auto table_result = table_value.to_table();
+        if (!std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_result)) {
+            return {runtime::Value()};  // nil
+        }
+
+        auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
+        return {table->get(key_value)};
+    }
+
+    std::vector<runtime::Value> rawset(const std::vector<runtime::Value>& args) {
+        if (args.size() < 3) {
+            return {runtime::Value()};  // nil
+        }
+
+        const auto& table_value = args[0];
+        const auto& key_value = args[1];
+        const auto& value = args[2];
+
+        if (!table_value.is_table()) {
+            return {runtime::Value()};  // nil
+        }
+
+        auto table_result = table_value.to_table();
+        if (!std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_result)) {
+            return {runtime::Value()};  // nil
+        }
+
+        auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
+        table->set(key_value, value);
+        return {table_value};
+    }
+
+    std::vector<runtime::Value> rawequal(const std::vector<runtime::Value>& args) {
+        if (args.size() < 2) {
+            return {runtime::Value(false)};
+        }
+
+        // Raw equality check without metamethods
+        bool equal = (args[0] == args[1]);
+        return {runtime::Value(equal)};
+    }
+
+    std::vector<runtime::Value> rawlen(const std::vector<runtime::Value>& args) {
+        if (args.empty()) {
+            return {runtime::Value()};  // nil
+        }
+
+        const auto& value = args[0];
+
+        if (value.is_string()) {
+            auto str_result = value.to_string();
+            if (std::holds_alternative<std::string>(str_result)) {
+                const std::string& str = std::get<std::string>(str_result);
+                return {runtime::Value(static_cast<Number>(str.length()))};
+            }
+        } else if (value.is_table()) {
+            auto table_result = value.to_table();
+            if (std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_result)) {
+                auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
+                return {runtime::Value(static_cast<Number>(table->totalSize()))};
+            }
+        }
+
+        return {runtime::Value()};  // nil
+    }
+
+    std::vector<runtime::Value> select(const std::vector<runtime::Value>& args) {
+        if (args.empty()) {
+            return {};
+        }
+
+        const auto& index_value = args[0];
+
+        // Handle "#" case - return number of arguments after index
+        if (index_value.is_string()) {
+            auto str_result = index_value.to_string();
+            if (std::holds_alternative<std::string>(str_result)) {
+                const std::string& str = std::get<std::string>(str_result);
+                if (str == "#") {
+                    return {runtime::Value(static_cast<Number>(args.size() - 1))};
+                }
+            }
+        }
+
+        // Handle numeric index
+        if (index_value.is_number()) {
+            auto num_result = index_value.to_number();
+            if (std::holds_alternative<double>(num_result)) {
+                int index = static_cast<int>(std::get<double>(num_result));
+
+                if (index < 0) {
+                    index = static_cast<int>(args.size()) + index;
+                }
+
+                if (index >= 1 && index < static_cast<int>(args.size())) {
+                    std::vector<runtime::Value> result;
+                    for (size_t i = static_cast<size_t>(index); i < args.size(); ++i) {
+                        result.push_back(args[i]);
+                    }
+                    return result;
+                }
+            }
+        }
+
+        return {};
+    }
+
+    std::vector<runtime::Value> error(const std::vector<runtime::Value>& args) {
+        std::string message = "error";
+        if (!args.empty() && args[0].is_string()) {
+            auto str_result = args[0].to_string();
+            if (std::holds_alternative<std::string>(str_result)) {
+                message = std::get<std::string>(str_result);
+            }
+        }
+
+        // TODO: Implement proper error handling with level support
+        throw std::runtime_error(message);
+    }
+
+    std::vector<runtime::Value> assert_(const std::vector<runtime::Value>& args) {
+        if (args.empty()) {
+            throw std::runtime_error("assertion failed!");
+        }
+
+        const auto& condition = args[0];
+
+        // Check if condition is false or nil
+        bool is_false = false;
+        if (condition.is_nil()) {
+            is_false = true;
+        } else if (condition.is_boolean()) {
+            auto bool_result = condition.to_boolean();
+            if (std::holds_alternative<bool>(bool_result)) {
+                is_false = !std::get<bool>(bool_result);
+            }
+        }
+
+        if (is_false) {
+            std::string message = "assertion failed!";
+            if (args.size() > 1 && args[1].is_string()) {
+                auto str_result = args[1].to_string();
+                if (std::holds_alternative<std::string>(str_result)) {
+                    message = std::get<std::string>(str_result);
+                }
+            }
+            throw std::runtime_error(message);
+        }
+
+        return args;  // Return all arguments if assertion passes
+    }
+
     void register_functions(const runtime::GCPtr<runtime::Table>& globals) {
         // Register the basic library functions
         globals->set(runtime::Value("print"), runtime::value_factory::function(print));
@@ -202,6 +486,19 @@ namespace rangelua::stdlib::basic {
         globals->set(runtime::Value("ipairs"), runtime::value_factory::function(ipairs));
         globals->set(runtime::Value("pairs"), runtime::value_factory::function(pairs));
         globals->set(runtime::Value("next"), runtime::value_factory::function(next));
+        globals->set(runtime::Value("tostring"), runtime::value_factory::function(tostring));
+        globals->set(runtime::Value("tonumber"), runtime::value_factory::function(tonumber));
+        globals->set(runtime::Value("getmetatable"),
+                     runtime::value_factory::function(getmetatable));
+        globals->set(runtime::Value("setmetatable"),
+                     runtime::value_factory::function(setmetatable));
+        globals->set(runtime::Value("rawget"), runtime::value_factory::function(rawget));
+        globals->set(runtime::Value("rawset"), runtime::value_factory::function(rawset));
+        globals->set(runtime::Value("rawequal"), runtime::value_factory::function(rawequal));
+        globals->set(runtime::Value("rawlen"), runtime::value_factory::function(rawlen));
+        globals->set(runtime::Value("select"), runtime::value_factory::function(select));
+        globals->set(runtime::Value("error"), runtime::value_factory::function(error));
+        globals->set(runtime::Value("assert"), runtime::value_factory::function(assert_));
     }
 
 }  // namespace rangelua::stdlib::basic
