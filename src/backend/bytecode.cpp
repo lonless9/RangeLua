@@ -238,7 +238,19 @@ namespace rangelua::backend {
         oss << std::setw(4) << index << ": " << opcode_name(op);
 
         switch (op) {
+            // Simple load operations (no operands)
+            case OpCode::OP_LOADFALSE:
+            case OpCode::OP_LFALSESKIP:
+            case OpCode::OP_LOADTRUE:
+            case OpCode::OP_RETURN0:
+            case OpCode::OP_CLOSE:
+            case OpCode::OP_TBC:
+                oss << " R" << static_cast<int>(a);
+                break;
+
+            // Load operations with B operand
             case OpCode::OP_MOVE:
+            case OpCode::OP_GETUPVAL:
             case OpCode::OP_UNM:
             case OpCode::OP_NOT:
             case OpCode::OP_LEN:
@@ -248,17 +260,34 @@ namespace rangelua::backend {
                 break;
             }
 
+            // Load operations with B range (LOADNIL)
+            case OpCode::OP_LOADNIL: {
+                Register b = InstructionEncoder::decode_b(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b);
+                break;
+            }
+
+            // Store operations (SETUPVAL)
+            case OpCode::OP_SETUPVAL: {
+                Register b = InstructionEncoder::decode_b(instr);
+                oss << " R" << static_cast<int>(a) << " U" << static_cast<int>(b);
+                break;
+            }
+
+            // Arithmetic operations with registers (ABC format)
             case OpCode::OP_ADD:
             case OpCode::OP_SUB:
             case OpCode::OP_MUL:
             case OpCode::OP_DIV:
+            case OpCode::OP_IDIV:
             case OpCode::OP_MOD:
             case OpCode::OP_POW:
             case OpCode::OP_BAND:
             case OpCode::OP_BOR:
             case OpCode::OP_BXOR:
             case OpCode::OP_SHL:
-            case OpCode::OP_SHR: {
+            case OpCode::OP_SHR:
+            case OpCode::OP_MMBIN: {
                 Register b = InstructionEncoder::decode_b(instr);
                 Register c = InstructionEncoder::decode_c(instr);
                 oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " R"
@@ -266,6 +295,38 @@ namespace rangelua::backend {
                 break;
             }
 
+            // Arithmetic operations with constants (ABC format)
+            case OpCode::OP_ADDK:
+            case OpCode::OP_SUBK:
+            case OpCode::OP_MULK:
+            case OpCode::OP_MODK:
+            case OpCode::OP_POWK:
+            case OpCode::OP_DIVK:
+            case OpCode::OP_IDIVK:
+            case OpCode::OP_BANDK:
+            case OpCode::OP_BORK:
+            case OpCode::OP_BXORK:
+            case OpCode::OP_MMBINK: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " K"
+                    << static_cast<int>(c);
+                break;
+            }
+
+            // Arithmetic operations with immediates (ABC format)
+            case OpCode::OP_ADDI:
+            case OpCode::OP_SHRI:
+            case OpCode::OP_SHLI:
+            case OpCode::OP_MMBINI: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            // Load operations with signed immediate (AsBx format)
             case OpCode::OP_LOADI:
             case OpCode::OP_LOADF: {
                 std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
@@ -273,18 +334,22 @@ namespace rangelua::backend {
                 break;
             }
 
-            case OpCode::OP_LOADK: {
+            // Load operations with constant index (ABx format)
+            case OpCode::OP_LOADK:
+            case OpCode::OP_LOADKX: {
                 std::uint32_t bx = InstructionEncoder::decode_bx(instr);
                 oss << " R" << static_cast<int>(a) << " K" << bx;
                 break;
             }
 
+            // Jump operations (AsBx format)
             case OpCode::OP_JMP: {
                 std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
                 oss << " " << sbx << " (to " << (index + 1 + sbx) << ")";
                 break;
             }
 
+            // Loop operations (AsBx format)
             case OpCode::OP_FORPREP:
             case OpCode::OP_FORLOOP: {
                 std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
@@ -292,6 +357,7 @@ namespace rangelua::backend {
                 break;
             }
 
+            // Table for loop operations (ABx format)
             case OpCode::OP_TFORPREP:
             case OpCode::OP_TFORLOOP: {
                 std::uint32_t bx = InstructionEncoder::decode_bx(instr);
@@ -299,8 +365,10 @@ namespace rangelua::backend {
                 break;
             }
 
+            // Function call operations (ABC format)
             case OpCode::OP_CALL:
-            case OpCode::OP_TAILCALL: {
+            case OpCode::OP_TAILCALL:
+            case OpCode::OP_TFORCALL: {
                 Register b = InstructionEncoder::decode_b(instr);
                 Register c = InstructionEncoder::decode_c(instr);
                 oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " "
@@ -308,26 +376,159 @@ namespace rangelua::backend {
                 break;
             }
 
+            // Return operations
+            case OpCode::OP_RETURN:
+            case OpCode::OP_VARARG: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_RETURN1: {
+                oss << " R" << static_cast<int>(a);
+                break;
+            }
+
+            // Table operations
             case OpCode::OP_GETTABUP: {
                 Register b = InstructionEncoder::decode_b(instr);
                 Register c = InstructionEncoder::decode_c(instr);
-                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " K"
+                oss << " R" << static_cast<int>(a) << " U" << static_cast<int>(b) << " K"
                     << static_cast<int>(c);
                 break;
             }
-            case OpCode::OP_SETTABUP: {
-                Register b = InstructionEncoder::decode_b(instr);
-                Register c = InstructionEncoder::decode_c(instr);
-                oss << " " << static_cast<int>(a) << " K" << static_cast<int>(b) << " R"
-                    << static_cast<int>(c);
-                break;
-            }
+
             case OpCode::OP_GETTABLE:
             case OpCode::OP_SETTABLE: {
                 Register b = InstructionEncoder::decode_b(instr);
                 Register c = InstructionEncoder::decode_c(instr);
                 oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " R"
                     << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_GETI:
+            case OpCode::OP_SETI: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_GETFIELD:
+            case OpCode::OP_SETFIELD: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " K"
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_SETTABUP: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " U" << static_cast<int>(a) << " K" << static_cast<int>(b) << " R"
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_NEWTABLE: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_SELF: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " K"
+                    << static_cast<int>(c);
+                break;
+            }
+
+            // Comparison operations
+            case OpCode::OP_EQ:
+            case OpCode::OP_LT:
+            case OpCode::OP_LE: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_EQK: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " K" << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_EQI:
+            case OpCode::OP_LTI:
+            case OpCode::OP_LEI:
+            case OpCode::OP_GTI:
+            case OpCode::OP_GEI: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_TEST: {
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(c);
+                break;
+            }
+
+            case OpCode::OP_TESTSET: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " R" << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            // String operations
+            case OpCode::OP_CONCAT: {
+                Register b = InstructionEncoder::decode_b(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b);
+                break;
+            }
+
+            // List operations
+            case OpCode::OP_SETLIST: {
+                Register b = InstructionEncoder::decode_b(instr);
+                Register c = InstructionEncoder::decode_c(instr);
+                oss << " R" << static_cast<int>(a) << " " << static_cast<int>(b) << " "
+                    << static_cast<int>(c);
+                break;
+            }
+
+            // Closure operations
+            case OpCode::OP_CLOSURE: {
+                std::uint32_t bx = InstructionEncoder::decode_bx(instr);
+                oss << " R" << static_cast<int>(a) << " " << bx;
+                break;
+            }
+
+            // Vararg operations
+            case OpCode::OP_VARARGPREP: {
+                oss << " R" << static_cast<int>(a);
+                break;
+            }
+
+            // Extra argument
+            case OpCode::OP_EXTRAARG: {
+                std::uint32_t ax = InstructionEncoder::decode_ax(instr);
+                oss << " " << ax;
                 break;
             }
 
@@ -364,6 +565,7 @@ namespace rangelua::backend {
 
     StringView Disassembler::opcode_name(OpCode op) noexcept {
         switch (op) {
+            // Load operations
             case OpCode::OP_MOVE:
                 return "MOVE";
             case OpCode::OP_LOADI:
@@ -376,26 +578,88 @@ namespace rangelua::backend {
                 return "LOADKX";
             case OpCode::OP_LOADFALSE:
                 return "LOADFALSE";
+            case OpCode::OP_LFALSESKIP:
+                return "LFALSESKIP";
             case OpCode::OP_LOADTRUE:
                 return "LOADTRUE";
             case OpCode::OP_LOADNIL:
                 return "LOADNIL";
+
+            // Upvalue operations
+            case OpCode::OP_GETUPVAL:
+                return "GETUPVAL";
+            case OpCode::OP_SETUPVAL:
+                return "SETUPVAL";
+
+            // Table operations
+            case OpCode::OP_GETTABUP:
+                return "GETTABUP";
+            case OpCode::OP_GETTABLE:
+                return "GETTABLE";
+            case OpCode::OP_GETI:
+                return "GETI";
+            case OpCode::OP_GETFIELD:
+                return "GETFIELD";
+            case OpCode::OP_SETTABUP:
+                return "SETTABUP";
+            case OpCode::OP_SETTABLE:
+                return "SETTABLE";
+            case OpCode::OP_SETI:
+                return "SETI";
+            case OpCode::OP_SETFIELD:
+                return "SETFIELD";
+            case OpCode::OP_NEWTABLE:
+                return "NEWTABLE";
+            case OpCode::OP_SELF:
+                return "SELF";
+
+            // Arithmetic operations with constants/immediates
+            case OpCode::OP_ADDI:
+                return "ADDI";
+            case OpCode::OP_ADDK:
+                return "ADDK";
+            case OpCode::OP_SUBK:
+                return "SUBK";
+            case OpCode::OP_MULK:
+                return "MULK";
+            case OpCode::OP_MODK:
+                return "MODK";
+            case OpCode::OP_POWK:
+                return "POWK";
+            case OpCode::OP_DIVK:
+                return "DIVK";
+            case OpCode::OP_IDIVK:
+                return "IDIVK";
+
+            // Bitwise operations with constants/immediates
+            case OpCode::OP_BANDK:
+                return "BANDK";
+            case OpCode::OP_BORK:
+                return "BORK";
+            case OpCode::OP_BXORK:
+                return "BXORK";
+            case OpCode::OP_SHRI:
+                return "SHRI";
+            case OpCode::OP_SHLI:
+                return "SHLI";
+
+            // Arithmetic operations with registers
             case OpCode::OP_ADD:
                 return "ADD";
             case OpCode::OP_SUB:
                 return "SUB";
             case OpCode::OP_MUL:
                 return "MUL";
-            case OpCode::OP_DIV:
-                return "DIV";
-            case OpCode::OP_IDIV:
-                return "IDIV";
             case OpCode::OP_MOD:
                 return "MOD";
             case OpCode::OP_POW:
                 return "POW";
-            case OpCode::OP_UNM:
-                return "UNM";
+            case OpCode::OP_DIV:
+                return "DIV";
+            case OpCode::OP_IDIV:
+                return "IDIV";
+
+            // Bitwise operations with registers
             case OpCode::OP_BAND:
                 return "BAND";
             case OpCode::OP_BOR:
@@ -406,42 +670,74 @@ namespace rangelua::backend {
                 return "SHL";
             case OpCode::OP_SHR:
                 return "SHR";
+
+            // Metamethod operations
+            case OpCode::OP_MMBIN:
+                return "MMBIN";
+            case OpCode::OP_MMBINI:
+                return "MMBINI";
+            case OpCode::OP_MMBINK:
+                return "MMBINK";
+
+            // Unary operations
+            case OpCode::OP_UNM:
+                return "UNM";
             case OpCode::OP_BNOT:
                 return "BNOT";
+            case OpCode::OP_NOT:
+                return "NOT";
+            case OpCode::OP_LEN:
+                return "LEN";
+
+            case OpCode::OP_CONCAT:
+                return "CONCAT";
+
+            // Control flow
+            case OpCode::OP_CLOSE:
+                return "CLOSE";
+            case OpCode::OP_TBC:
+                return "TBC";
+            case OpCode::OP_JMP:
+                return "JMP";
+
+            // Comparison operations
             case OpCode::OP_EQ:
                 return "EQ";
             case OpCode::OP_LT:
                 return "LT";
             case OpCode::OP_LE:
                 return "LE";
-            case OpCode::OP_NOT:
-                return "NOT";
-            case OpCode::OP_LEN:
-                return "LEN";
-            case OpCode::OP_GETTABUP:
-                return "GETTABUP";
-            case OpCode::OP_GETTABLE:
-                return "GETTABLE";
-            case OpCode::OP_SETTABUP:
-                return "SETTABUP";
-            case OpCode::OP_SETTABLE:
-                return "SETTABLE";
-            case OpCode::OP_NEWTABLE:
-                return "NEWTABLE";
-            case OpCode::OP_SELF:
-                return "SELF";
+            case OpCode::OP_EQK:
+                return "EQK";
+            case OpCode::OP_EQI:
+                return "EQI";
+            case OpCode::OP_LTI:
+                return "LTI";
+            case OpCode::OP_LEI:
+                return "LEI";
+            case OpCode::OP_GTI:
+                return "GTI";
+            case OpCode::OP_GEI:
+                return "GEI";
+
+            case OpCode::OP_TEST:
+                return "TEST";
+            case OpCode::OP_TESTSET:
+                return "TESTSET";
+
+            // Function operations
             case OpCode::OP_CALL:
                 return "CALL";
             case OpCode::OP_TAILCALL:
                 return "TAILCALL";
             case OpCode::OP_RETURN:
                 return "RETURN";
-            case OpCode::OP_JMP:
-                return "JMP";
-            case OpCode::OP_TEST:
-                return "TEST";
-            case OpCode::OP_TESTSET:
-                return "TESTSET";
+            case OpCode::OP_RETURN0:
+                return "RETURN0";
+            case OpCode::OP_RETURN1:
+                return "RETURN1";
+
+            // Loop operations
             case OpCode::OP_FORLOOP:
                 return "FORLOOP";
             case OpCode::OP_FORPREP:
@@ -452,22 +748,49 @@ namespace rangelua::backend {
                 return "TFORCALL";
             case OpCode::OP_TFORLOOP:
                 return "TFORLOOP";
-            case OpCode::OP_CLOSE:
-                return "CLOSE";
-            case OpCode::OP_TBC:
-                return "TBC";
-            case OpCode::OP_RETURN0:
-                return "RETURN0";
-            case OpCode::OP_RETURN1:
-                return "RETURN1";
+
+            case OpCode::OP_SETLIST:
+                return "SETLIST";
+            case OpCode::OP_CLOSURE:
+                return "CLOSURE";
+            case OpCode::OP_VARARG:
+                return "VARARG";
+            case OpCode::OP_VARARGPREP:
+                return "VARARGPREP";
+            case OpCode::OP_EXTRAARG:
+                return "EXTRAARG";
+
             default:
                 return "UNKNOWN";
         }
     }
 
-    StringView Disassembler::instruction_format(OpCode /* op */) noexcept {
-        // TODO: Implement instruction format descriptions
-        return "ABC";
+    StringView Disassembler::instruction_format(OpCode op) noexcept {
+        switch (op) {
+            // ABx format instructions
+            case OpCode::OP_LOADK:
+            case OpCode::OP_LOADKX:
+            case OpCode::OP_FORLOOP:
+            case OpCode::OP_FORPREP:
+            case OpCode::OP_TFORPREP:
+            case OpCode::OP_TFORLOOP:
+            case OpCode::OP_CLOSURE:
+                return "ABx";
+
+            // AsBx format instructions
+            case OpCode::OP_LOADI:
+            case OpCode::OP_LOADF:
+            case OpCode::OP_JMP:
+                return "AsBx";
+
+            // Ax format instructions
+            case OpCode::OP_EXTRAARG:
+                return "Ax";
+
+            // ABC format instructions (default)
+            default:
+                return "ABC";
+        }
     }
 
     // BytecodeValidator implementation
@@ -585,18 +908,29 @@ namespace rangelua::backend {
 
             // For instructions that use B and C registers, validate them too
             switch (opcode) {
+                // ABC format instructions with register operands
                 case OpCode::OP_MOVE:
                 case OpCode::OP_ADD:
                 case OpCode::OP_SUB:
                 case OpCode::OP_MUL:
                 case OpCode::OP_DIV:
+                case OpCode::OP_IDIV:
                 case OpCode::OP_MOD:
                 case OpCode::OP_POW:
                 case OpCode::OP_BAND:
                 case OpCode::OP_BOR:
                 case OpCode::OP_BXOR:
                 case OpCode::OP_SHL:
-                case OpCode::OP_SHR: {
+                case OpCode::OP_SHR:
+                case OpCode::OP_MMBIN:
+                case OpCode::OP_GETTABLE:
+                case OpCode::OP_SETTABLE:
+                case OpCode::OP_GETI:
+                case OpCode::OP_SETI:
+                case OpCode::OP_EQ:
+                case OpCode::OP_LT:
+                case OpCode::OP_LE:
+                case OpCode::OP_TESTSET: {
                     Register b = InstructionEncoder::decode_b(instr);
                     Register c = InstructionEncoder::decode_c(instr);
 
@@ -605,16 +939,87 @@ namespace rangelua::backend {
                     }
                     break;
                 }
-                case OpCode::OP_UNM:
-                case OpCode::OP_NOT:
-                case OpCode::OP_LEN:
-                case OpCode::OP_BNOT: {
+
+                // ABC format instructions with constant operands (don't validate C as register)
+                case OpCode::OP_ADDK:
+                case OpCode::OP_SUBK:
+                case OpCode::OP_MULK:
+                case OpCode::OP_MODK:
+                case OpCode::OP_POWK:
+                case OpCode::OP_DIVK:
+                case OpCode::OP_IDIVK:
+                case OpCode::OP_BANDK:
+                case OpCode::OP_BORK:
+                case OpCode::OP_BXORK:
+                case OpCode::OP_MMBINK:
+                case OpCode::OP_GETFIELD:
+                case OpCode::OP_SETFIELD:
+                case OpCode::OP_GETTABUP:
+                case OpCode::OP_SETTABUP:
+                case OpCode::OP_SELF:
+                case OpCode::OP_EQK: {
                     Register b = InstructionEncoder::decode_b(instr);
                     if (b >= function.stack_size) {
                         return ErrorCode::RUNTIME_ERROR;
                     }
                     break;
                 }
+
+                // ABC format instructions with immediate operands
+                case OpCode::OP_ADDI:
+                case OpCode::OP_SHRI:
+                case OpCode::OP_SHLI:
+                case OpCode::OP_MMBINI:
+                case OpCode::OP_EQI:
+                case OpCode::OP_LTI:
+                case OpCode::OP_LEI:
+                case OpCode::OP_GTI:
+                case OpCode::OP_GEI: {
+                    Register b = InstructionEncoder::decode_b(instr);
+                    if (b >= function.stack_size) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                // Instructions with only B register
+                case OpCode::OP_GETUPVAL:
+                case OpCode::OP_SETUPVAL:
+                case OpCode::OP_UNM:
+                case OpCode::OP_NOT:
+                case OpCode::OP_LEN:
+                case OpCode::OP_BNOT:
+                case OpCode::OP_LOADNIL:
+                case OpCode::OP_CONCAT: {
+                    Register b = InstructionEncoder::decode_b(instr);
+                    if (b >= function.stack_size) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                // Function call instructions
+                case OpCode::OP_CALL:
+                case OpCode::OP_TAILCALL:
+                case OpCode::OP_TFORCALL:
+                case OpCode::OP_RETURN:
+                case OpCode::OP_VARARG:
+                case OpCode::OP_NEWTABLE:
+                case OpCode::OP_SETLIST: {
+                    [[maybe_unused]] Register b = InstructionEncoder::decode_b(instr);
+                    [[maybe_unused]] Register c = InstructionEncoder::decode_c(instr);
+                    // For these instructions, B and C may be special values, not just register indices
+                    // Additional validation logic could be added here
+                    break;
+                }
+
+                // Instructions with only C register (TEST)
+                case OpCode::OP_TEST: {
+                    [[maybe_unused]] Register c = InstructionEncoder::decode_c(instr);
+                    // C is a boolean flag for TEST, not a register
+                    break;
+                }
+
                 default:
                     // Other instructions may have different register usage patterns
                     break;
@@ -634,13 +1039,49 @@ namespace rangelua::backend {
 
             // For instructions that reference constants, validate the constant index
             switch (opcode) {
-                case OpCode::OP_LOADK: {
+                // ABx format instructions that use constants
+                case OpCode::OP_LOADK:
+                case OpCode::OP_LOADKX: {
                     std::uint32_t bx = InstructionEncoder::decode_bx(instr);
                     if (bx >= function.constants.size()) {
                         return ErrorCode::RUNTIME_ERROR;
                     }
                     break;
                 }
+
+                // ABC format instructions that use constants in C field
+                case OpCode::OP_ADDK:
+                case OpCode::OP_SUBK:
+                case OpCode::OP_MULK:
+                case OpCode::OP_MODK:
+                case OpCode::OP_POWK:
+                case OpCode::OP_DIVK:
+                case OpCode::OP_IDIVK:
+                case OpCode::OP_BANDK:
+                case OpCode::OP_BORK:
+                case OpCode::OP_BXORK:
+                case OpCode::OP_MMBINK:
+                case OpCode::OP_GETFIELD:
+                case OpCode::OP_SETFIELD:
+                case OpCode::OP_GETTABUP:
+                case OpCode::OP_SETTABUP:
+                case OpCode::OP_SELF:
+                case OpCode::OP_EQK: {
+                    Register c = InstructionEncoder::decode_c(instr);
+                    if (c >= function.constants.size()) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                // ABx format instructions that reference function prototypes
+                case OpCode::OP_CLOSURE: {
+                    std::uint32_t bx = InstructionEncoder::decode_bx(instr);
+                    // TODO: Validate function prototype index when prototypes are implemented
+                    (void)bx; // Suppress unused variable warning
+                    break;
+                }
+
                 default:
                     // Other instructions may not use constants
                     break;
@@ -660,6 +1101,7 @@ namespace rangelua::backend {
 
             // For jump instructions, validate the target is within bounds
             switch (opcode) {
+                // Unconditional jump
                 case OpCode::OP_JMP: {
                     std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
                     std::int64_t target = static_cast<std::int64_t>(index) + 1 + sbx;
@@ -670,6 +1112,73 @@ namespace rangelua::backend {
                     }
                     break;
                 }
+
+                // Loop instructions with backward jumps
+                case OpCode::OP_FORLOOP: {
+                    std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
+                    std::int64_t target = static_cast<std::int64_t>(index) + 1 - sbx;
+
+                    if (target < 0 ||
+                        target >= static_cast<std::int64_t>(function.instructions.size())) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                // Loop preparation with forward jumps
+                case OpCode::OP_FORPREP: {
+                    std::int32_t sbx = InstructionEncoder::decode_sbx(instr);
+                    std::int64_t target = static_cast<std::int64_t>(index) + 1 + sbx;
+
+                    if (target < 0 ||
+                        target >= static_cast<std::int64_t>(function.instructions.size())) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                // Table for loop instructions
+                case OpCode::OP_TFORPREP: {
+                    std::uint32_t bx = InstructionEncoder::decode_bx(instr);
+                    std::int64_t target = static_cast<std::int64_t>(index) + 1 + bx;
+
+                    if (target >= static_cast<std::int64_t>(function.instructions.size())) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                case OpCode::OP_TFORLOOP: {
+                    std::uint32_t bx = InstructionEncoder::decode_bx(instr);
+                    std::int64_t target = static_cast<std::int64_t>(index) + 1 - bx;
+
+                    if (target < 0) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
+                // Conditional jumps (these skip the next instruction if condition is false)
+                case OpCode::OP_EQ:
+                case OpCode::OP_LT:
+                case OpCode::OP_LE:
+                case OpCode::OP_EQK:
+                case OpCode::OP_EQI:
+                case OpCode::OP_LTI:
+                case OpCode::OP_LEI:
+                case OpCode::OP_GTI:
+                case OpCode::OP_GEI:
+                case OpCode::OP_TEST:
+                case OpCode::OP_TESTSET: {
+                    // These instructions conditionally skip the next instruction
+                    std::int64_t target = static_cast<std::int64_t>(index) + 2;
+
+                    if (target >= static_cast<std::int64_t>(function.instructions.size())) {
+                        return ErrorCode::RUNTIME_ERROR;
+                    }
+                    break;
+                }
+
                 default:
                     // Other instructions may not be jumps
                     break;
