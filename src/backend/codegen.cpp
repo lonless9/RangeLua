@@ -1534,12 +1534,28 @@ namespace rangelua::backend {
     void CodeGenerator::visit([[maybe_unused]] const frontend::VarargExpression& node) {
         CODEGEN_LOG_DEBUG("Generating code for vararg expression");
 
+        // Allocate register for vararg result
+        auto reg_result = register_allocator_.allocate();
+        if (is_error(reg_result)) {
+            CODEGEN_LOG_ERROR("Failed to allocate register for vararg expression");
+            return;
+        }
+
+        Register vararg_reg = get_value(reg_result);
+
+        // Emit VARARG instruction
+        // C=0 means get all available varargs, C=1 means get 0 varargs, C=2 means get 1 vararg,
+        // etc. For now, we'll emit with C=0 to get all varargs
+        emitter_.emit_abc(OpCode::OP_VARARG, vararg_reg, 0, 0);
+
         // Create vararg expression descriptor
         ExpressionDesc expr;
-        expr.kind = ExpressionKind::VARARG;
-        expr.u.info = emitter_.instruction_count();  // Will be patched when discharged
+        expr.kind = ExpressionKind::NONRELOC;
+        expr.u.info = vararg_reg;
 
         current_expression_ = expr;
+
+        CODEGEN_LOG_DEBUG("Generated VARARG instruction at register {}", vararg_reg);
     }
 
     void CodeGenerator::visit(const frontend::ParenthesizedExpression& node) {
@@ -1687,6 +1703,14 @@ namespace rangelua::backend {
                 nested_emitter.set_parameter_count(param_count);
                 nested_emitter.set_vararg(has_vararg);
 
+                // If this is a vararg function, emit VARARGPREP instruction
+                if (has_vararg) {
+                    nested_emitter.emit_abc(
+                        OpCode::OP_VARARGPREP, static_cast<Register>(param_count), 0, 0);
+                    CODEGEN_LOG_DEBUG("Emitted VARARGPREP for function with {} parameters",
+                                      param_count);
+                }
+
                 // Generate code for function body using the nested generator
                 func_expr->body().accept(nested_generator);
 
@@ -1802,6 +1826,14 @@ namespace rangelua::backend {
         // Set up function metadata
         nested_emitter.set_parameter_count(param_count);
         nested_emitter.set_vararg(has_vararg);
+
+        // If this is a vararg function, emit VARARGPREP instruction
+        if (has_vararg) {
+            nested_emitter.emit_abc(
+                OpCode::OP_VARARGPREP, static_cast<Register>(param_count), 0, 0);
+            CODEGEN_LOG_DEBUG("Emitted VARARGPREP for declared function with {} parameters",
+                              param_count);
+        }
 
         // Create a separate code generator for the nested function
         CodeGenerator nested_generator(nested_emitter);

@@ -583,6 +583,7 @@ namespace rangelua::runtime {
             bytecode_func.parameter_count = function->parameterCount();
             bytecode_func.stack_size = 16;  // Default stack size
             bytecode_func.instructions = function->bytecode();
+            bytecode_func.is_vararg = function->isVararg();  // Copy vararg flag from Function
 
             // Setup call frame for the function
             auto setup_result = setup_call_frame(bytecode_func, args.size());
@@ -725,8 +726,15 @@ namespace rangelua::runtime {
         Size required_stack = stack_top_ + function.stack_size;
         ensure_stack_size(required_stack);
 
-        // Create call frame with proper stack base
-        CallFrame frame(&function, stack_top_ - arg_count, function.parameter_count);
+        // Create call frame with enhanced vararg support
+        CallFrame frame(&function,
+                        stack_top_ - arg_count,
+                        function.parameter_count,
+                        function.parameter_count,
+                        arg_count,
+                        function.is_vararg);
+
+        VM_LOG_DEBUG("Function is_vararg flag: {}", function.is_vararg);
 
         // For main chunks (top-level functions), create a closure with _ENV as upvalue[0]
         if (call_stack_.empty() && environment_) {
@@ -757,11 +765,17 @@ namespace rangelua::runtime {
             stack_at(i) = Value{};
         }
 
-        VM_LOG_DEBUG("Setup call frame: function={}, args={}, params={}, stack_base={}",
+        VM_LOG_DEBUG("Setup call frame: function={}, args={}, params={}, stack_base={}, varargs={}",
                      function.name,
                      arg_count,
                      function.parameter_count,
-                     frame.stack_base);
+                     frame.stack_base,
+                     function.is_vararg);
+
+        // If this is a vararg function, emit VARARGPREP instruction handling
+        if (function.is_vararg) {
+            VM_LOG_DEBUG("Function has varargs: {} extra args available", frame.vararg_count());
+        }
 
         return std::monostate{};
     }
@@ -807,6 +821,10 @@ namespace rangelua::runtime {
 
     void VirtualMachine::trigger_runtime_error(const String& message) {
         set_runtime_error(message);
+    }
+
+    const CallFrame* VirtualMachine::current_call_frame() const noexcept {
+        return call_stack_.empty() ? nullptr : &call_stack_.back();
     }
 
     // Legacy instruction implementations (deprecated - moved to strategy pattern)

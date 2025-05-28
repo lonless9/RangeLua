@@ -333,6 +333,14 @@ namespace rangelua::runtime {
         return upvalues_.size();
     }
 
+    bool Function::isVararg() const noexcept {
+        return isVararg_;
+    }
+
+    void Function::setVararg(bool vararg) noexcept {
+        isVararg_ = vararg;
+    }
+
     bool Function::isCFunction() const noexcept {
         return type_ == Type::C_FUNCTION;
     }

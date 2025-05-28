@@ -62,6 +62,9 @@ namespace rangelua::runtime {
         auto function = makeGCObject<Function>(prototype.instructions, prototype.parameter_count);
         function->makeClosure();  // Mark as closure
 
+        // Copy vararg flag from prototype
+        function->setVararg(prototype.is_vararg);
+
         // Copy constants from prototype to function
         for (const auto& constant : prototype.constants) {
             // Convert ConstantValue to Value

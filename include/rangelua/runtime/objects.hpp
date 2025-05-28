@@ -192,6 +192,8 @@ namespace rangelua::runtime {
         [[nodiscard]] Type type() const noexcept;
         [[nodiscard]] Size parameterCount() const noexcept;
         [[nodiscard]] Size upvalueCount() const noexcept;
+        [[nodiscard]] bool isVararg() const noexcept;
+        void setVararg(bool vararg) noexcept;
 
         // C function access
         [[nodiscard]] bool isCFunction() const noexcept;
@@ -229,6 +231,7 @@ namespace rangelua::runtime {
     private:
         Type type_;
         Size parameterCount_ = 0;
+        bool isVararg_ = false;
 
         // C function data
         CFunction cFunction_;

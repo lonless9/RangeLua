@@ -7,6 +7,7 @@
 #include <rangelua/backend/bytecode.hpp>
 #include <rangelua/runtime/metamethod.hpp>
 #include <rangelua/runtime/value.hpp>
+#include <rangelua/runtime/vm.hpp>
 #include <rangelua/runtime/vm/misc_strategies.hpp>
 #include <rangelua/utils/logger.hpp>
 
@@ -76,21 +77,48 @@ namespace rangelua::runtime {
         Register a = backend::InstructionEncoder::decode_a(instruction);
         Register c = backend::InstructionEncoder::decode_c(instruction);
 
-        VM_LOG_DEBUG("VARARG: R[{}], R[{}], ..., R[{}] = vararg", a, a + 1, a + c - 2);
+        VM_LOG_DEBUG("VARARG: R[{}] = vararg (c={})", a, c);
 
-        // Get vararg values from the current function call
-        // For now, this is a simplified implementation
-        // A full implementation would access the actual vararg parameters
-        // passed to the current function
-
-        Size vararg_count = (c == 0) ? 0 : (c - 1);  // C-1 values to copy
-
-        // Fill registers with nil (no varargs available in this simplified version)
-        for (Size i = 0; i < vararg_count; ++i) {
-            context.stack_at(a + i) = Value{};  // nil
+        // Get current call frame to access vararg information
+        auto* vm = dynamic_cast<VirtualMachine*>(&context);
+        if (!vm || vm->call_depth() == 0) {
+            VM_LOG_ERROR("VARARG: No call frame available");
+            return ErrorCode::RUNTIME_ERROR;
         }
 
-        VM_LOG_DEBUG("VARARG: Filled {} registers with nil (no varargs available)", vararg_count);
+        // Access the current call frame to get vararg information
+        const CallFrame* current_frame = vm->current_call_frame();
+        if (!current_frame) {
+            VM_LOG_ERROR("VARARG: No current call frame");
+            return ErrorCode::RUNTIME_ERROR;
+        }
+
+        Size vararg_count_requested = (c == 0) ? current_frame->vararg_count() : (c - 1);
+        Size vararg_count_available = current_frame->vararg_count();
+
+        VM_LOG_DEBUG("VARARG: Requested {} varargs, {} available",
+                     vararg_count_requested,
+                     vararg_count_available);
+
+        // Copy vararg values to target registers
+        for (Size i = 0; i < vararg_count_requested; ++i) {
+            if (i < vararg_count_available) {
+                // Copy actual vararg value
+                // Varargs are stored after the fixed parameters in the stack
+                Size vararg_stack_pos = current_frame->stack_base + current_frame->parameter_count + i;
+                context.stack_at(a + i) = context.stack_at(vararg_stack_pos);
+                VM_LOG_DEBUG("VARARG: R[{}] = vararg[{}] from stack[{}] = {}",
+                             a + i,
+                             i,
+                             vararg_stack_pos,
+                             context.stack_at(a + i).debug_string());
+            } else {
+                // Fill remaining with nil
+                context.stack_at(a + i) = Value{};
+                VM_LOG_DEBUG("VARARG: R[{}] = nil (no more varargs)", a + i);
+            }
+        }
+
         return std::monostate{};
     }
 
@@ -100,16 +128,37 @@ namespace rangelua::runtime {
 
         VM_LOG_DEBUG("VARARGPREP: adjust vararg parameters at R[{}]", a);
 
-        // Prepare vararg parameters for a function that accepts varargs
-        // This instruction adjusts the stack to prepare for vararg access
+        // Get current call frame to access vararg information
+        auto* vm = dynamic_cast<VirtualMachine*>(&context);
+        if (!vm || vm->call_depth() == 0) {
+            VM_LOG_ERROR("VARARGPREP: No call frame available");
+            return ErrorCode::RUNTIME_ERROR;
+        }
 
-        // For now, this is a simplified implementation
-        // A full implementation would:
-        // 1. Calculate how many extra arguments were passed
-        // 2. Adjust the stack frame to accommodate vararg access
-        // 3. Set up the vararg information for VARARG instructions
+        const CallFrame* current_frame = vm->current_call_frame();
+        if (!current_frame) {
+            VM_LOG_ERROR("VARARGPREP: No current call frame");
+            return ErrorCode::RUNTIME_ERROR;
+        }
 
-        VM_LOG_DEBUG("VARARGPREP: Vararg preparation completed at R[{}]", a);
+        // VARARGPREP adjusts the stack to prepare for vararg access
+        // The A operand specifies the number of fixed parameters
+        // This instruction is typically emitted at the beginning of vararg functions
+
+        if (current_frame->has_varargs) {
+            VM_LOG_DEBUG("VARARGPREP: Function has {} fixed params, {} total args, {} varargs",
+                         current_frame->parameter_count,
+                         current_frame->argument_count,
+                         current_frame->vararg_count());
+
+            // The vararg preparation is already done in setup_call_frame
+            // This instruction mainly serves as a marker and for stack adjustment
+            VM_LOG_DEBUG("VARARGPREP: Vararg preparation completed - {} varargs available",
+                         current_frame->vararg_count());
+        } else {
+            VM_LOG_DEBUG("VARARGPREP: Function does not accept varargs");
+        }
+
         return std::monostate{};
     }
 

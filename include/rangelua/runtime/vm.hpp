@@ -38,6 +38,12 @@ namespace rangelua::runtime {
         Size local_count = 0;
         bool is_tail_call = false;
 
+        // Vararg support
+        Size parameter_count = 0;  // Number of declared parameters
+        Size argument_count = 0;   // Number of actual arguments passed
+        Size vararg_base = 0;      // Stack position where varargs start
+        bool has_varargs = false;  // Whether function accepts varargs
+
         CallFrame() = default;
         CallFrame(const backend::BytecodeFunction* func, Size stack_base, Size locals)
             : function(func), stack_base(stack_base), local_count(locals) {}
@@ -46,6 +52,35 @@ namespace rangelua::runtime {
                   Size stack_base,
                   Size locals)
             : function(func), closure(closure), stack_base(stack_base), local_count(locals) {}
+
+        // Enhanced constructor with vararg support
+        CallFrame(const backend::BytecodeFunction* func,
+                  Size stack_base,
+                  Size locals,
+                  Size param_count,
+                  Size arg_count,
+                  bool varargs = false)
+            : function(func),
+              stack_base(stack_base),
+              local_count(locals),
+              parameter_count(param_count),
+              argument_count(arg_count),
+              vararg_base(stack_base + param_count),
+              has_varargs(varargs) {}
+
+        /**
+         * @brief Get number of extra arguments (varargs)
+         */
+        [[nodiscard]] Size vararg_count() const noexcept {
+            return (argument_count > parameter_count) ? (argument_count - parameter_count) : 0;
+        }
+
+        /**
+         * @brief Check if there are varargs available
+         */
+        [[nodiscard]] bool has_vararg_values() const noexcept {
+            return has_varargs && vararg_count() > 0;
+        }
     };
 
     /**
@@ -298,6 +333,11 @@ namespace rangelua::runtime {
          * @brief Trigger runtime error for testing
          */
         void trigger_runtime_error(const String& message);
+
+        /**
+         * @brief Get current call frame (for vararg access)
+         */
+        [[nodiscard]] const CallFrame* current_call_frame() const noexcept;
 
     private:
         VMConfig config_;
