@@ -79,13 +79,15 @@ namespace rangelua::backend {
      * - Supports immediate register reuse
      * - Tracks local variable registers separately
      * - Optimizes for expression evaluation patterns
+     * - Implements proper register validation and bounds checking
+     * - Supports register reuse optimization patterns
      */
     class RegisterAllocator {
     public:
         explicit RegisterAllocator(Size max_registers = 255);
 
         /**
-         * @brief Reserve n registers starting from freereg
+         * @brief Reserve n registers starting from freereg (Lua 5.5: luaK_reserveregs)
          * @param n Number of registers to reserve
          * @return Starting register index
          */
@@ -98,22 +100,22 @@ namespace rangelua::backend {
         [[nodiscard]] Register next_free() const noexcept { return free_reg_; }
 
         /**
-         * @brief Free register if it's not a local variable
+         * @brief Free register if it's not a local variable (Lua 5.5: freereg)
          * @param reg Register to free
-         * @param local_count Number of local variables (registers 0..local_count-1 are locals)
+         * @param nvarstack Number of active local variables
          */
-        void free_register(Register reg, Size local_count);
+        void free_register(Register reg, Size nvarstack);
 
         /**
-         * @brief Free two registers in proper order
+         * @brief Free two registers in proper order (Lua 5.5: freeregs)
          * @param r1 First register
          * @param r2 Second register
-         * @param local_count Number of local variables
+         * @param nvarstack Number of active local variables
          */
-        void free_registers(Register r1, Register r2, Size local_count);
+        void free_registers(Register r1, Register r2, Size nvarstack);
 
         /**
-         * @brief Check and update stack size
+         * @brief Check and update stack size (Lua 5.5: luaK_checkstack)
          * @param needed Number of additional registers needed
          */
         void check_stack(Size needed);
@@ -130,16 +132,49 @@ namespace rangelua::backend {
         void reset();
 
         /**
-         * @brief Set number of local variables (affects which registers can be freed)
-         * @param count Number of local variables
+         * @brief Set number of active local variables (affects which registers can be freed)
+         * @param count Number of active local variables
          */
-        void set_local_count(Size count) noexcept { local_count_ = count; }
+        void set_nvarstack(Size count) noexcept { nvarstack_ = count; }
 
         /**
-         * @brief Get number of local variables
-         * @return Number of local variables
+         * @brief Get number of active local variables (Lua 5.5: luaY_nvarstack)
+         * @return Number of active local variables
          */
-        [[nodiscard]] Size local_count() const noexcept { return local_count_; }
+        [[nodiscard]] Size nvarstack() const noexcept { return nvarstack_; }
+
+        /**
+         * @brief Check if register is valid
+         * @param reg Register to check
+         * @return True if register is valid
+         */
+        [[nodiscard]] bool is_valid_register(Register reg) const noexcept;
+
+        /**
+         * @brief Check if register can be freed (not a local variable)
+         * @param reg Register to check
+         * @return True if register can be freed
+         */
+        [[nodiscard]] bool can_free_register(Register reg) const noexcept;
+
+        /**
+         * @brief Get maximum allowed registers
+         * @return Maximum register count
+         */
+        [[nodiscard]] Size max_registers() const noexcept { return max_registers_; }
+
+        /**
+         * @brief Free expression register if it's a non-relocatable expression (Lua 5.5: freeexp)
+         * @param expr Expression to free
+         */
+        void free_expression_register(const ExpressionDesc& expr);
+
+        /**
+         * @brief Free two expression registers in proper order (Lua 5.5: freeexps)
+         * @param e1 First expression
+         * @param e2 Second expression
+         */
+        void free_expression_registers(const ExpressionDesc& e1, const ExpressionDesc& e2);
 
         // Temporary compatibility methods for migration
         /**
@@ -161,10 +196,10 @@ namespace rangelua::backend {
         [[nodiscard]] Register high_water_mark() const noexcept;
 
     private:
-        Size max_registers_;
-        Register free_reg_;        // First free register (Lua's freereg)
+        Size max_registers_;       // Maximum allowed registers (usually 255)
+        Register free_reg_;        // Next free register (Lua 5.5: fs->freereg)
         Register max_stack_size_;  // Maximum stack size reached
-        Size local_count_;         // Number of local variables
+        Size nvarstack_;           // Number of active local variables (Lua 5.5: luaY_nvarstack)
     };
 
     /**
@@ -505,6 +540,9 @@ namespace rangelua::backend {
         void define_label(const String& name);
         void emit_goto(const String& label);
         void resolve_pending_gotos();
+
+        // Register allocator synchronization
+        void update_register_allocator_nvarstack();
     };
 
     /**

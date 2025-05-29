@@ -11,7 +11,7 @@ namespace rangelua::backend {
 
     // RegisterAllocator implementation (Lua 5.5 style)
     RegisterAllocator::RegisterAllocator(Size max_registers)
-        : max_registers_(max_registers), free_reg_(0), max_stack_size_(0), local_count_(0) {}
+        : max_registers_(max_registers), free_reg_(0), max_stack_size_(0), nvarstack_(0) {}
 
     Register RegisterAllocator::reserve_registers(Size n) {
         check_stack(n);
@@ -20,40 +20,56 @@ namespace rangelua::backend {
         return start;
     }
 
-    void RegisterAllocator::free_register(Register reg, Size local_count) {
-        // Only free registers that are not local variables
-        if (reg >= local_count && reg == free_reg_ - 1) {
+    void RegisterAllocator::free_register(Register reg, Size nvarstack) {
+        // Only free registers that are not local variables and are at the top of the stack
+        // This follows Lua 5.5's freereg function logic
+        if (reg >= nvarstack && reg == free_reg_ - 1) {
             free_reg_--;
+            CODEGEN_LOG_DEBUG("Freed register R[{}], freereg now {}", reg, free_reg_);
+        } else {
+            CODEGEN_LOG_DEBUG(
+                "Cannot free register R[{}] (nvarstack={}, freereg={})", reg, nvarstack, free_reg_);
         }
     }
 
-    void RegisterAllocator::free_registers(Register r1, Register r2, Size local_count) {
+    void RegisterAllocator::free_registers(Register r1, Register r2, Size nvarstack) {
         // Free registers in reverse order (higher register first)
+        // This follows Lua 5.5's freeregs function logic
         if (r1 > r2) {
-            free_register(r1, local_count);
-            free_register(r2, local_count);
+            free_register(r1, nvarstack);
+            free_register(r2, nvarstack);
         } else {
-            free_register(r2, local_count);
-            free_register(r1, local_count);
+            free_register(r2, nvarstack);
+            free_register(r1, nvarstack);
         }
     }
 
     void RegisterAllocator::check_stack(Size needed) {
         Register new_stack = free_reg_ + static_cast<Register>(needed);
         if (new_stack > max_registers_) {
-            // This should be an error in a real implementation
             CODEGEN_LOG_ERROR("Register stack overflow: need {}, max {}", new_stack, max_registers_);
+            // In a real implementation, this should throw an exception or return an error
             return;
         }
         if (new_stack > max_stack_size_) {
             max_stack_size_ = new_stack;
+            CODEGEN_LOG_DEBUG("Updated max stack size to {}", max_stack_size_);
         }
+    }
+
+    bool RegisterAllocator::is_valid_register(Register reg) const noexcept {
+        return reg < max_registers_;
+    }
+
+    bool RegisterAllocator::can_free_register(Register reg) const noexcept {
+        return reg >= nvarstack_ && reg == free_reg_ - 1;
     }
 
     void RegisterAllocator::reset() {
         free_reg_ = 0;
         max_stack_size_ = 0;
-        local_count_ = 0;
+        nvarstack_ = 0;
+        CODEGEN_LOG_DEBUG("Reset register allocator");
     }
 
     // Temporary compatibility methods for migration
@@ -63,11 +79,28 @@ namespace rangelua::backend {
     }
 
     void RegisterAllocator::free(Register reg) {
-        free_register(reg, local_count_);
+        free_register(reg, nvarstack_);
     }
 
     Register RegisterAllocator::high_water_mark() const noexcept {
         return max_stack_size_;
+    }
+
+    void RegisterAllocator::free_expression_register(const ExpressionDesc& expr) {
+        // Lua 5.5's freeexp function - free register used by expression if any
+        if (expr.kind == ExpressionKind::NONRELOC) {
+            free_register(static_cast<Register>(expr.u.info), nvarstack_);
+        }
+    }
+
+    void RegisterAllocator::free_expression_registers(const ExpressionDesc& e1,
+                                                      const ExpressionDesc& e2) {
+        // Lua 5.5's freeexps function - free registers used by expressions in proper order
+        Register r1 =
+            (e1.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e1.u.info) : 255;
+        Register r2 =
+            (e2.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e2.u.info) : 255;
+        free_registers(r1, r2, nvarstack_);
     }
 
     // Expression management methods (Lua 5.5 style)
@@ -119,9 +152,11 @@ namespace rangelua::backend {
                 }
 
                 // Free the table and key registers
-                register_allocator_.free_register(expr.u.indexed.table, register_allocator_.local_count());
+                register_allocator_.free_register(expr.u.indexed.table,
+                                                  register_allocator_.nvarstack());
                 if (!expr.u.indexed.is_const_key) {
-                    register_allocator_.free_register(expr.u.indexed.key, register_allocator_.local_count());
+                    register_allocator_.free_register(expr.u.indexed.key,
+                                                      register_allocator_.nvarstack());
                 }
 
                 expr.kind = ExpressionKind::RELOC;
@@ -236,7 +271,8 @@ namespace rangelua::backend {
 
     void CodeGenerator::free_expression(ExpressionDesc& expr) {
         if (expr.kind == ExpressionKind::NONRELOC) {
-            register_allocator_.free_register(static_cast<Register>(expr.u.info), register_allocator_.local_count());
+            register_allocator_.free_register(static_cast<Register>(expr.u.info),
+                                              register_allocator_.nvarstack());
         }
     }
 
@@ -244,7 +280,7 @@ namespace rangelua::backend {
         Register r1 = (e1.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e1.u.info) : 255;
         Register r2 = (e2.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e2.u.info) : 255;
         if (r1 != 255 || r2 != 255) {
-            register_allocator_.free_registers(r1, r2, register_allocator_.local_count());
+            register_allocator_.free_registers(r1, r2, register_allocator_.nvarstack());
         }
     }
 
@@ -404,6 +440,18 @@ namespace rangelua::backend {
         : emitter_(emitter), register_allocator_(256), jump_manager_(), scope_manager_() {
         // Initialize jump manager with emitter pointer
         jump_manager_.set_emitter(&emitter_);
+
+        // Synchronize register allocator with scope manager
+        // This ensures proper tracking of local variables for register management
+        update_register_allocator_nvarstack();
+    }
+
+    void CodeGenerator::update_register_allocator_nvarstack() {
+        // Synchronize register allocator with scope manager
+        // This ensures proper tracking of local variables for register management
+        Size current_locals = scope_manager_.current_locals().size();
+        register_allocator_.set_nvarstack(current_locals);
+        CODEGEN_LOG_DEBUG("Updated register allocator nvarstack to {}", current_locals);
     }
 
     Status CodeGenerator::generate(const frontend::Program& ast) {
@@ -1126,7 +1174,8 @@ namespace rangelua::backend {
 
         // Free the argument registers (but keep the function register for the result)
         for (Size i = 1; i < total_needed; ++i) {
-            register_allocator_.free_register(call_base + static_cast<Register>(i), register_allocator_.local_count());
+            register_allocator_.free_register(call_base + static_cast<Register>(i),
+                                              register_allocator_.nvarstack());
         }
 
         // Set result expression - the result is in call_base
@@ -1305,7 +1354,7 @@ namespace rangelua::backend {
                 // Free the argument registers
                 for (Size i = 1; i < total_needed; ++i) {
                     register_allocator_.free_register(call_base + static_cast<Register>(i),
-                                                      register_allocator_.local_count());
+                                                      register_allocator_.nvarstack());
                 }
 
                 // Clean up expressions
@@ -1624,7 +1673,8 @@ namespace rangelua::backend {
 
         // Free argument registers (but keep the method register for the result)
         for (Size i = 1; i < total_needed; ++i) {
-            register_allocator_.free_register(call_base + static_cast<Register>(i), register_allocator_.local_count());
+            register_allocator_.free_register(call_base + static_cast<Register>(i),
+                                              register_allocator_.nvarstack());
         }
 
         // Clean up expressions
@@ -1752,8 +1802,8 @@ namespace rangelua::backend {
 
                             // Free the list value registers
                             for (Register reg : list_values) {
-                                register_allocator_.free_register(
-                                    reg, register_allocator_.local_count());
+                                register_allocator_.free_register(reg,
+                                                                  register_allocator_.nvarstack());
                             }
                             Size values_count = list_values.size();
                             list_values.clear();
@@ -2118,7 +2168,7 @@ namespace rangelua::backend {
                 // Free the argument registers
                 for (Size i = 1; i < total_needed; ++i) {
                     register_allocator_.free_register(call_base + static_cast<Register>(i),
-                                                      register_allocator_.local_count());
+                                                      register_allocator_.nvarstack());
                 }
 
                 // Clean up expressions
@@ -2247,6 +2297,9 @@ namespace rangelua::backend {
             // Declare the local variable in scope
             scope_manager_.declare_local(names[i], local_reg);
 
+            // Update register allocator with new local count
+            update_register_allocator_nvarstack();
+
             // Assign value if available
             if (i < value_expressions.size()) {
                 // Move value to local register
@@ -2365,6 +2418,9 @@ namespace rangelua::backend {
 
                     // Declare the local function
                     scope_manager_.declare_local(identifier->name(), local_reg);
+
+                    // Update register allocator with new local count
+                    update_register_allocator_nvarstack();
 
                     // Move function to local register
                     emitter_.emit_abc(OpCode::OP_MOVE, local_reg, func_reg, 0);
@@ -2508,6 +2564,9 @@ namespace rangelua::backend {
         // Declare the loop variable
         scope_manager_.declare_local(node.variable(), var_reg);
 
+        // Update register allocator with new local count
+        update_register_allocator_nvarstack();
+
         // Emit FORPREP instruction (sets up the loop)
         Size loop_start = emitter_.emit_asbx(OpCode::OP_FORPREP, start_reg, 0);
 
@@ -2613,6 +2672,9 @@ namespace rangelua::backend {
             scope_manager_.declare_local(node.variables()[i], var_reg);
         }
 
+        // Update register allocator with new local count after declaring all loop variables
+        update_register_allocator_nvarstack();
+
         // Emit TFORPREP instruction to set up the loop
         // TFORPREP creates an upvalue for R[A + 3] and jumps to TFORCALL
         Size tforprep_pc = emitter_.emit_abx(OpCode::OP_TFORPREP, base_reg, 0);
@@ -2650,8 +2712,9 @@ namespace rangelua::backend {
 
         // Free the reserved registers (in reverse order)
         for (Size i = 0; i < total_registers_needed; ++i) {
-            register_allocator_.free_register(base_reg + total_registers_needed - 1 - static_cast<Register>(i),
-                                              register_allocator_.local_count());
+            register_allocator_.free_register(base_reg + total_registers_needed - 1 -
+                                                  static_cast<Register>(i),
+                                              register_allocator_.nvarstack());
         }
     }
 

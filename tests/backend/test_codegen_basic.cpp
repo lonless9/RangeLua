@@ -78,7 +78,7 @@ TEST_CASE("RegisterAllocator functionality", "[codegen][register]") {
 
     SECTION("Register freeing") {
         RegisterAllocator allocator(10);
-        allocator.set_local_count(2);  // First 2 registers are locals
+        allocator.set_nvarstack(2);  // First 2 registers are locals
 
         // Reserve some registers
         Register reg1 = allocator.reserve_registers(1);                   // reg 0
@@ -88,11 +88,11 @@ TEST_CASE("RegisterAllocator functionality", "[codegen][register]") {
         REQUIRE(allocator.next_free() == 3);
 
         // Try to free a local register (should not free)
-        allocator.free_register(reg1, allocator.local_count());
+        allocator.free_register(reg1, allocator.nvarstack());
         REQUIRE(allocator.next_free() == 3);  // Should not change
 
         // Free a non-local register (should free)
-        allocator.free_register(reg3, allocator.local_count());
+        allocator.free_register(reg3, allocator.nvarstack());
         REQUIRE(allocator.next_free() == 2);  // Should decrease
     }
 
