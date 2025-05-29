@@ -34,8 +34,6 @@ set_targetdir("build/$(plat)_$(arch)_$(mode)")
 
 -- Package dependencies
 add_requires("spdlog")
-add_requires("catch2 3.x")
-add_requires("benchmark")
 
 -- Core library target
 target("rangelua_core")
@@ -65,26 +63,3 @@ target("rangelua")
     set_rundir("$(projectdir)")
     add_deps("rangelua_core")
     add_files("src/main.cpp")
-
--- Unit tests target (disabled as we enter the script testing phase)
--- target("rangelua_test")
---     set_kind("binary")
---     add_packages("spdlog", "catch2")
---     add_deps("rangelua_core")
---     add_files("tests/**.cpp")
-    -- Note: Using custom test main instead of CATCH_CONFIG_MAIN for logging support
--- Benchmark target
--- target("rangelua_benchmark")
---     set_kind("binary")
---     add_packages("spdlog", "benchmark")
---     add_deps("rangelua_core")
---     add_files("benchmarks/**.cpp")
-
--- Example programs
--- for _, example in ipairs({"basic_usage", "advanced_features", "performance_demo"}) do
---     target("example_" .. example)
---         set_kind("binary")
---         add_deps("rangelua_core")
---         add_files("examples/" .. example .. ".cpp")
---         set_targetdir("build/$(plat)_$(arch)_$(mode)/examples")
--- end

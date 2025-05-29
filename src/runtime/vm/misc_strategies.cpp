@@ -136,7 +136,7 @@ namespace rangelua::runtime {
 
     // VarargPrepStrategy implementation - prepare vararg parameters
     Status VarargPrepStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        Register a = backend::InstructionEncoder::decode_a(instruction);
+        [[maybe_unused]] Register a = backend::InstructionEncoder::decode_a(instruction);
 
         VM_LOG_DEBUG("VARARGPREP: adjust vararg parameters at R[{}]", a);
 
@@ -262,7 +262,7 @@ namespace rangelua::runtime {
     // ExtraArgStrategy implementation - extra argument for previous opcode
     Status ExtraArgStrategy::execute_impl([[maybe_unused]] IVMContext& context,
                                           Instruction instruction) {
-        std::uint32_t ax = backend::InstructionEncoder::decode_ax(instruction);
+        [[maybe_unused]] std::uint32_t ax = backend::InstructionEncoder::decode_ax(instruction);
 
         VM_LOG_DEBUG("EXTRAARG: extra argument {}", ax);
 

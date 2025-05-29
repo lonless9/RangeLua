@@ -671,7 +671,7 @@ namespace rangelua::runtime {
             Size initial_call_stack_size = call_stack_.size();
 
             // Main execution loop for this function
-            size_t instruction_count = 0;
+            [[maybe_unused]] size_t instruction_count = 0;
             while (state_ == VMState::Running && call_stack_.size() >= initial_call_stack_size) {
                 auto step_result = step();
                 instruction_count++;

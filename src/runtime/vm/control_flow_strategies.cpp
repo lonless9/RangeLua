@@ -508,7 +508,7 @@ namespace rangelua::runtime {
 
     // CloseStrategy implementation - close upvalues
     Status CloseStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        Register a = backend::InstructionEncoder::decode_a(instruction);
+        [[maybe_unused]] Register a = backend::InstructionEncoder::decode_a(instruction);
 
         VM_LOG_DEBUG("CLOSE: close all upvalues >= R[{}]", a);
 
@@ -539,7 +539,7 @@ namespace rangelua::runtime {
         // This is used for Lua 5.4+ to-be-closed variables (local <close> x)
         // When the variable goes out of scope, its __close metamethod is called
 
-        const Value& value = context.stack_at(a);
+        [[maybe_unused]] const Value& value = context.stack_at(a);
 
         // For now, this is a simplified implementation
         // A full implementation would:
