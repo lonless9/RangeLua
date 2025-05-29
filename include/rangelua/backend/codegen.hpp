@@ -178,6 +178,65 @@ namespace rangelua::backend {
          */
         void free_expression_registers(const ExpressionDesc& e1, const ExpressionDesc& e2);
 
+        /**
+         * @brief Set return count for multi-return expressions (Lua 5.5: luaK_setreturns)
+         * @param expr Expression descriptor (must be CALL or VARARG)
+         * @param nresults Number of results to return (LUA_MULTRET for all)
+         */
+        void set_returns(ExpressionDesc& expr, Size nresults);
+
+        /**
+         * @brief Set expression to return one result (Lua 5.5: luaK_setoneret)
+         * @param expr Expression descriptor
+         */
+        void set_one_return(ExpressionDesc& expr);
+
+        /**
+         * @brief Set expression to return multiple results (Lua 5.5: luaK_setmultret)
+         * @param expr Expression descriptor
+         */
+        void set_multi_return(ExpressionDesc& expr);
+
+        /**
+         * @brief Move results to target registers with proper count handling (Lua 5.5: moveresults)
+         * @param target_start Starting target register
+         * @param source_start Starting source register
+         * @param actual_count Actual number of results available
+         * @param wanted_count Number of results wanted (SIZE_MAX for all)
+         */
+        void move_results(Register target_start,
+                          Register source_start,
+                          Size actual_count,
+                          Size wanted_count);
+
+        /**
+         * @brief Correct stack pointers after reallocation (Lua 5.5: correctstack)
+         * @param old_base Previous stack base
+         * @param new_base New stack base
+         */
+        void correct_stack(Register old_base, Register new_base);
+
+        /**
+         * @brief Reserve consecutive registers for function calls (Lua 5.5: luaK_reserveregs +
+         * consecutive check)
+         * @param n Number of consecutive registers needed
+         * @return Starting register index or error
+         */
+        Result<Register> reserve_consecutive_registers(Size n);
+
+        /**
+         * @brief Ensure register is at the top of the stack (for function calls)
+         * @param reg Register to check
+         * @return True if register is at stack top
+         */
+        bool is_at_stack_top(Register reg) const noexcept;
+
+        /**
+         * @brief Adjust free register pointer to specific position
+         * @param new_free New free register position
+         */
+        void set_free_register(Register new_free) noexcept;
+
         // Temporary compatibility methods for migration
         /**
          * @brief Allocate a single register (compatibility method)
@@ -545,6 +604,21 @@ namespace rangelua::backend {
 
         // Register allocator synchronization
         void update_register_allocator_nvarstack();
+
+        // Enhanced register allocation methods for function calls and multi-return handling
+        void set_expression_returns(ExpressionDesc& expr, Size nresults);
+        void set_expression_one_return(ExpressionDesc& expr);
+        void set_expression_multi_return(ExpressionDesc& expr);
+        void move_expression_results(Register target_start,
+                                     Register source_start,
+                                     Size actual_count,
+                                     Size wanted_count);
+        Result<Register> reserve_consecutive_registers(Size n);
+        void adjust_stack_for_call(Register call_base, Size arg_count, Size expected_returns);
+        void finalize_function_call(ExpressionDesc& call_expr,
+                                    Register call_base,
+                                    Size arg_count,
+                                    Size expected_returns);
     };
 
     /**

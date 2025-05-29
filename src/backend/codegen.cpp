@@ -154,6 +154,182 @@ namespace rangelua::backend {
         free_registers(r1, r2, nvarstack_);
     }
 
+    void RegisterAllocator::set_returns(ExpressionDesc& expr, Size nresults) {
+        // Lua 5.5's luaK_setreturns function - set return count for multi-return expressions
+        if (expr.kind != ExpressionKind::CALL && expr.kind != ExpressionKind::VARARG) {
+            CODEGEN_LOG_WARN("set_returns called on non-multi-return expression");
+            return;
+        }
+
+        CODEGEN_LOG_DEBUG("Setting returns for expression: kind={}, nresults={}",
+                          static_cast<int>(expr.kind),
+                          nresults);
+
+        // For CALL expressions, we need to modify the C field of the CALL instruction
+        // For VARARG expressions, we need to modify the C field and set A field
+        if (expr.kind == ExpressionKind::CALL) {
+            // The instruction index should be stored in expr.u.info for CALL expressions
+            // We'll store the return count in a way that can be retrieved later
+            // This is a simplified approach - in full implementation, we'd patch the instruction
+            expr.u.info = (expr.u.info & 0xFFFF0000) | (nresults & 0xFFFF);
+        } else if (expr.kind == ExpressionKind::VARARG) {
+            // For VARARG, set the return count and reserve register if needed
+            expr.u.info = nresults;
+            if (nresults != SIZE_MAX) {
+                // Reserve register for fixed number of returns
+                reserve_registers(1);
+            }
+        }
+    }
+
+    void RegisterAllocator::set_one_return(ExpressionDesc& expr) {
+        // Lua 5.5's luaK_setoneret function - ensure expression returns exactly one value
+        if (expr.kind == ExpressionKind::CALL) {
+            // Function call - already returns 1 value by default
+            // Convert to NONRELOC since result has fixed position
+            expr.kind = ExpressionKind::NONRELOC;
+            // expr.u.info should already contain the result register
+            CODEGEN_LOG_DEBUG("Set function call to return one value at R[{}]", expr.u.info);
+        } else if (expr.kind == ExpressionKind::VARARG) {
+            // Vararg - set to return one value and reserve register
+            set_returns(expr, 1);
+            Register reg = free_reg_;
+            reserve_registers(1);
+            expr.kind = ExpressionKind::RELOC;
+            expr.u.info = reg;
+            CODEGEN_LOG_DEBUG("Set vararg to return one value at R[{}]", reg);
+        }
+        // Other expression types already return one value
+    }
+
+    void RegisterAllocator::set_multi_return(ExpressionDesc& expr) {
+        // Lua 5.5's luaK_setmultret function - set expression to return all values
+        set_returns(expr, SIZE_MAX);  // SIZE_MAX represents LUA_MULTRET
+        CODEGEN_LOG_DEBUG("Set expression to return multiple values");
+    }
+
+    void RegisterAllocator::move_results(Register target_start,
+                                         Register source_start,
+                                         Size actual_count,
+                                         Size wanted_count) {
+        // Lua 5.5's moveresults function - move results with proper count handling
+        CODEGEN_LOG_DEBUG("move_results: target_start={}, source_start={}, actual={}, wanted={}",
+                          target_start,
+                          source_start,
+                          actual_count,
+                          wanted_count);
+
+        // Handle different cases based on wanted count (following Lua 5.5 moveresults logic)
+        Size move_count;
+        if (wanted_count == SIZE_MAX) {
+            // LUA_MULTRET case - move all available results
+            move_count = actual_count;
+        } else if (wanted_count == 0) {
+            // No results wanted - just adjust stack
+            move_count = 0;
+        } else {
+            // Fixed number of results - move min(actual, wanted)
+            move_count = std::min(actual_count, wanted_count);
+        }
+
+        // Update register tracking for moved results
+        Register target_end = target_start + static_cast<Register>(move_count);
+        if (target_end > free_reg_) {
+            free_reg_ = target_end;
+        }
+
+        // Update max stack size if needed
+        if (target_end > max_stack_size_) {
+            max_stack_size_ = target_end;
+        }
+
+        // For wanted_count > actual_count, we need to reserve space for nil padding
+        if (wanted_count != SIZE_MAX && wanted_count > actual_count) {
+            Register nil_end = target_start + static_cast<Register>(wanted_count);
+            if (nil_end > free_reg_) {
+                free_reg_ = nil_end;
+            }
+            if (nil_end > max_stack_size_) {
+                max_stack_size_ = nil_end;
+            }
+        }
+
+        CODEGEN_LOG_DEBUG("Moved {} results from R[{}] to R[{}], wanted={}, free_reg={}",
+                          move_count,
+                          source_start,
+                          target_start,
+                          wanted_count,
+                          free_reg_);
+    }
+
+    void RegisterAllocator::correct_stack(Register old_base, Register new_base) {
+        // Lua 5.5's correctstack function - correct register references after stack reallocation
+        CODEGEN_LOG_DEBUG("correct_stack: old_base={}, new_base={}", old_base, new_base);
+
+        if (old_base == new_base) {
+            return;  // No correction needed
+        }
+
+        Register offset = new_base - old_base;
+
+        // Adjust free register pointer
+        free_reg_ += offset;
+
+        // Adjust max stack size
+        max_stack_size_ += offset;
+
+        CODEGEN_LOG_DEBUG(
+            "Corrected stack: free_reg_={}, max_stack_size_={}", free_reg_, max_stack_size_);
+    }
+
+    Result<Register> RegisterAllocator::reserve_consecutive_registers(Size n) {
+        // Enhanced version of reserve_registers that ensures consecutive allocation
+        if (n == 0) {
+            CODEGEN_LOG_WARN("Attempted to reserve 0 consecutive registers");
+            return make_error<Register>(ErrorCode::ARGUMENT_ERROR);
+        }
+
+        // Check if we have enough consecutive space
+        auto check_result = check_stack(n);
+        if (is_error(check_result)) {
+            return make_error<Register>(get_error(check_result));
+        }
+
+        // In our simple allocator, registers are always consecutive from free_reg_
+        Register start = free_reg_;
+        free_reg_ += static_cast<Register>(n);
+
+        CODEGEN_LOG_DEBUG("Reserved {} consecutive registers starting at R[{}], freereg now {}",
+                          n,
+                          start,
+                          free_reg_);
+        return make_success(start);
+    }
+
+    bool RegisterAllocator::is_at_stack_top(Register reg) const noexcept {
+        // Check if register is at the current top of the register stack
+        return reg == free_reg_ - 1;
+    }
+
+    void RegisterAllocator::set_free_register(Register new_free) noexcept {
+        // Adjust free register pointer to specific position (Lua 5.5: fs->freereg = new_free)
+        CODEGEN_LOG_DEBUG("set_free_register: old_free={}, new_free={}", free_reg_, new_free);
+
+        // Ensure we don't go below nvarstack (local variables)
+        if (new_free < nvarstack_) {
+            CODEGEN_LOG_WARN(
+                "Attempted to set free register below nvarstack: {} < {}", new_free, nvarstack_);
+            new_free = nvarstack_;
+        }
+
+        free_reg_ = new_free;
+
+        // Update max stack size if needed
+        if (new_free > max_stack_size_) {
+            max_stack_size_ = new_free;
+        }
+    }
+
     // Expression management methods (Lua 5.5 style)
     void CodeGenerator::discharge_vars(ExpressionDesc& expr) {
         switch (expr.kind) {
@@ -301,7 +477,19 @@ namespace rangelua::backend {
     Register CodeGenerator::expression_to_next_register(ExpressionDesc& expr) {
         discharge_vars(expr);
         free_expression(expr);
-        Register reg = safe_reserve_registers(register_allocator_, 1);
+
+        Register reg;
+        if (current_result_register_.has_value()) {
+            // Use the hinted register if available
+            reg = current_result_register_.value();
+            CODEGEN_LOG_DEBUG("Using hinted register R{} for expression", reg);
+            // Clear the hint after using it
+            current_result_register_.reset();
+        } else {
+            // Use next available register
+            reg = safe_reserve_registers(register_allocator_, 1);
+        }
+
         discharge_to_register(expr, reg);
         return reg;
     }
@@ -333,6 +521,115 @@ namespace rangelua::backend {
         if (r1 != 255 || r2 != 255) {
             register_allocator_.free_registers(r1, r2, register_allocator_.nvarstack());
         }
+    }
+
+    // Enhanced register allocation methods for function calls and multi-return handling
+    void CodeGenerator::set_expression_returns(ExpressionDesc& expr, Size nresults) {
+        // Wrapper for register allocator's set_returns method
+        register_allocator_.set_returns(expr, nresults);
+    }
+
+    void CodeGenerator::set_expression_one_return(ExpressionDesc& expr) {
+        // Wrapper for register allocator's set_one_return method
+        register_allocator_.set_one_return(expr);
+    }
+
+    void CodeGenerator::set_expression_multi_return(ExpressionDesc& expr) {
+        // Wrapper for register allocator's set_multi_return method
+        register_allocator_.set_multi_return(expr);
+    }
+
+    void CodeGenerator::move_expression_results(Register target_start,
+                                                Register source_start,
+                                                Size actual_count,
+                                                Size wanted_count) {
+        // Wrapper for register allocator's move_results method with instruction emission
+        register_allocator_.move_results(target_start, source_start, actual_count, wanted_count);
+
+        // Emit actual MOVE instructions for the results
+        Size move_count =
+            (wanted_count == SIZE_MAX) ? actual_count : std::min(actual_count, wanted_count);
+
+        for (Size i = 0; i < move_count; ++i) {
+            Register target_reg = target_start + static_cast<Register>(i);
+            Register source_reg = source_start + static_cast<Register>(i);
+            if (target_reg != source_reg) {
+                emitter_.emit_abc(OpCode::OP_MOVE, target_reg, source_reg, 0);
+            }
+        }
+
+        // Fill remaining target registers with nil if needed
+        if (wanted_count != SIZE_MAX && wanted_count > actual_count) {
+            for (Size i = actual_count; i < wanted_count; ++i) {
+                Register target_reg = target_start + static_cast<Register>(i);
+                emitter_.emit_abc(OpCode::OP_LOADNIL, target_reg, 0, 0);
+            }
+        }
+
+        CODEGEN_LOG_DEBUG("Moved {} results from R[{}] to R[{}], wanted {}",
+                          move_count,
+                          source_start,
+                          target_start,
+                          wanted_count);
+    }
+
+    Result<Register> CodeGenerator::reserve_consecutive_registers(Size n) {
+        // Wrapper for register allocator's reserve_consecutive_registers method
+        return register_allocator_.reserve_consecutive_registers(n);
+    }
+
+    void CodeGenerator::adjust_stack_for_call(Register call_base,
+                                              Size arg_count,
+                                              Size expected_returns) {
+        // Adjust register allocation for function call setup
+        // This ensures proper register layout for Lua function calls
+
+        // Set free register to after the call arguments
+        Register new_free = call_base + 1 + static_cast<Register>(arg_count);
+        register_allocator_.set_free_register(new_free);
+
+        // Reserve space for expected return values if known
+        if (expected_returns != SIZE_MAX && expected_returns > 0) {
+            register_allocator_.reserve_registers(expected_returns);
+        }
+
+        CODEGEN_LOG_DEBUG(
+            "Adjusted stack for call: base={}, args={}, expected_returns={}, new_free={}",
+            call_base,
+            arg_count,
+            expected_returns,
+            new_free);
+    }
+
+    void CodeGenerator::finalize_function_call(ExpressionDesc& call_expr,
+                                               Register call_base,
+                                               Size arg_count,
+                                               Size expected_returns) {
+        // Finalize function call expression with proper return handling
+
+        if (expected_returns == SIZE_MAX) {
+            // Multi-return case - set expression to CALL with all returns
+            call_expr.kind = ExpressionKind::CALL;
+            call_expr.u.info = call_base;  // Result starts at call_base
+            set_expression_multi_return(call_expr);
+        } else if (expected_returns == 1) {
+            // Single return case - set expression to NONRELOC
+            call_expr.kind = ExpressionKind::NONRELOC;
+            call_expr.u.info = call_base;  // Result is at call_base
+        } else if (expected_returns == 0) {
+            // No return values - set expression to VOID
+            call_expr.kind = ExpressionKind::VOID;
+        } else {
+            // Fixed number of returns - set expression to CALL with specific count
+            call_expr.kind = ExpressionKind::CALL;
+            call_expr.u.info = call_base;
+            set_expression_returns(call_expr, expected_returns);
+        }
+
+        CODEGEN_LOG_DEBUG("Finalized function call: base={}, args={}, returns={}",
+                          call_base,
+                          arg_count,
+                          expected_returns);
     }
 
     // JumpManager implementation
@@ -1110,52 +1407,37 @@ namespace rangelua::backend {
         // Generate code for arguments
         std::vector<ExpressionDesc> arg_expressions;
         bool has_multret_arg = false;  // Track if last argument is a function call
+        const frontend::Expression* multret_arg_node = nullptr;  // Store the multret argument node
 
         for (Size i = 0; i < node.arguments().size(); ++i) {
             const auto& arg = node.arguments()[i];
 
-            // Check if this is the last argument and it's a function call
+            // Check if this is the last argument and it's a function call or vararg
             bool is_last_arg = (i == node.arguments().size() - 1);
             bool is_function_call =
                 dynamic_cast<const frontend::FunctionCallExpression*>(arg.get()) != nullptr;
+            bool is_vararg = dynamic_cast<const frontend::VarargExpression*>(arg.get()) != nullptr;
 
-            if (is_last_arg && is_function_call) {
+            if (is_last_arg && (is_function_call || is_vararg)) {
                 has_multret_arg = true;
-                CODEGEN_LOG_DEBUG("Last argument is a function call - enabling multret");
-
-                // Set a special context for the function call to return all values (C=0)
-                bool old_context = multi_return_context_;
-                multi_return_context_ = false;  // We'll handle this specially
-                arg->accept(*this);
-
-                // After the function call, modify its C parameter to 0 (return all values)
-                if (current_expression_.has_value()) {
-                    // The function call should have generated a CALL instruction
-                    // We need to modify the last emitted instruction to use C=0
-                    auto& last_instruction = emitter_.get_last_instruction();
-                    LuaInstruction lua_instr(last_instruction);
-                    if (lua_instr.opcode() == OpCode::OP_CALL) {
-                        // Modify C parameter to 0 (LUA_MULTRET) while keeping A and B
-                        last_instruction = LuaInstruction::create_abc(
-                                               OpCode::OP_CALL, lua_instr.A(), lua_instr.B(), 0)
-                                               .raw;
-                        CODEGEN_LOG_DEBUG("Modified last CALL instruction to use C=0 for multret");
-                    }
-                }
-
-                multi_return_context_ = old_context;  // Restore context
+                multret_arg_node = arg.get();
+                CODEGEN_LOG_DEBUG("Last argument is a multret expression - deferring generation");
+                // Don't generate the multret argument yet - we'll do it after we know call_base
             } else {
                 arg->accept(*this);
-            }
-
-            if (current_expression_.has_value()) {
-                arg_expressions.push_back(current_expression_.value());
+                if (current_expression_.has_value()) {
+                    arg_expressions.push_back(current_expression_.value());
+                }
             }
         }
 
         // In Lua, function calls need consecutive registers: func, arg1, arg2, ...
         // Reserve consecutive registers for the call
         Size total_needed = 1 + arg_expressions.size();
+        if (has_multret_arg) {
+            // For multret calls, we need one extra slot for the multret argument function
+            total_needed += 1;
+        }
         Register call_base = safe_reserve_registers(register_allocator_, total_needed);
 
         // Move function to call position
@@ -1164,35 +1446,48 @@ namespace rangelua::backend {
         // Handle arguments - special case for multret
         if (has_multret_arg) {
             // When the last argument is a function call with multiple returns,
-            // we need to ensure the multret function call happens at the right position
+            // we need to ensure the inner call's results are placed at the correct position
 
             // Move all arguments except the last one
-            for (Size i = 0; i < arg_expressions.size() - 1; ++i) {
+            for (Size i = 0; i < arg_expressions.size(); ++i) {
                 expression_to_register(arg_expressions[i],
                                        call_base + 1 + static_cast<Register>(i));
             }
 
-            // For the last argument (multret function call), we need to regenerate
-            // the function call at the correct position
-            Size last_arg_index = arg_expressions.size() - 1;
-            Register target_reg = call_base + 1 + static_cast<Register>(last_arg_index);
+            // Now generate the multret argument at the correct position
+            // The target should be immediately after the existing arguments
+            Register target_reg = call_base + 1 + static_cast<Register>(arg_expressions.size());
+            CODEGEN_LOG_DEBUG("Generating multret function call at position R{}", target_reg);
 
-            // The last argument should be a function call expression
-            // We need to regenerate it to return values at the target position
-            CODEGEN_LOG_DEBUG("Regenerating multret function call at target position R{}",
-                              target_reg);
+            // Set multi-return context for the last argument
+            bool old_context = multi_return_context_;
+            multi_return_context_ = true;
 
-            // For now, we'll use the existing approach but ensure the VM handles it correctly
-            // The key insight is that the VM should use the stack top to determine arguments
-            // when B=0 is used
-            ExpressionDesc& last_arg = arg_expressions[last_arg_index];
-            if (last_arg.kind == ExpressionKind::NONRELOC) {
-                // The function call result is at last_arg.u.info
-                // We don't move it - instead, we rely on the VM to handle variable arguments
-                // from the current stack state
-                CODEGEN_LOG_DEBUG("Multret function call result at R{}, will use stack-based args",
-                                  last_arg.u.info);
+            // For function calls, we need to ensure they use the correct base register
+            // We'll temporarily adjust the register allocator to force the correct position
+            Register saved_freereg = register_allocator_.next_free();
+            register_allocator_.set_free_register(target_reg);
+
+            // Generate the multret expression at the forced position
+            multret_arg_node->accept(*this);
+
+            // Restore the register allocator state
+            register_allocator_.set_free_register(saved_freereg);
+
+            // Restore context
+            multi_return_context_ = old_context;
+
+            if (current_expression_.has_value()) {
+                ExpressionDesc multret_expr = current_expression_.value();
+
+                // Set the expression to return all values (LUA_MULTRET)
+                set_expression_multi_return(multret_expr);
+
+                // Add the multret expression to our list
+                arg_expressions.push_back(multret_expr);
             }
+
+            // The VM will use stack_top to determine the number of arguments when B=0
         } else {
             // Normal case - move all arguments
             for (Size i = 0; i < arg_expressions.size(); ++i) {
@@ -1214,14 +1509,21 @@ namespace rangelua::backend {
             b_param = static_cast<Register>(arg_count + 1);
         }
 
-        // Determine the number of return values based on context
+        // Determine the number of return values based on context (following Lua 5.5 pattern)
+        Size expected_returns;
         if (multi_return_context_) {
-            c_param = 4;  // 3 return values (4 = 3 + 1) for generic for loops
+            expected_returns = SIZE_MAX;  // LUA_MULTRET - accept all return values
+            c_param = 0;                  // C=0 means LUA_MULTRET
         } else {
-            c_param = 2;  // Default: 1 return value (2 = 1 + 1)
+            expected_returns = 1;  // Single return value
+            c_param = 2;           // C=2 means 1 return value (C-1)
         }
 
         emitter_.emit_abc(OpCode::OP_CALL, call_base, b_param, c_param);
+
+        // Create function call expression and finalize it
+        ExpressionDesc call_expr;
+        finalize_function_call(call_expr, call_base, arg_count, expected_returns);
 
         // Free the argument registers (but keep the function register for the result)
         for (Size i = 1; i < total_needed; ++i) {
@@ -1229,11 +1531,8 @@ namespace rangelua::backend {
                                               register_allocator_.nvarstack());
         }
 
-        // Set result expression - the result is in call_base
-        ExpressionDesc result_expr;
-        result_expr.kind = ExpressionKind::NONRELOC;
-        result_expr.u.info = call_base;
-        current_expression_ = result_expr;
+        // Use the finalized call expression as the result
+        current_expression_ = call_expr;
     }
 
     void CodeGenerator::visit(const frontend::BlockStatement& node) {
