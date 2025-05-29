@@ -684,8 +684,13 @@ namespace rangelua::runtime {
 
             // After function execution, the return values should be placed starting at the
             // call frame's stack_base (which is where return_from_function places them)
-            // function_call_base is where arguments were pushed, so that's our function_base
+            // For varargs functions, the function's actual stack base is different from where
+            // arguments were pushed
             Size function_base = function_call_base;
+            if (bytecode_func.is_vararg) {
+                // For varargs functions, the function's stack base is after all arguments
+                function_base = function_call_base + args.size();
+            }
 
             VM_LOG_DEBUG("Function execution completed. function_call_base={}, args.size()={}, "
                          "calculated_function_base={}, current_stack_top={}",
@@ -878,9 +883,33 @@ namespace rangelua::runtime {
 
         call_stack_.push_back(frame);
 
-        // Initialize local variables beyond parameters to nil
-        for (Size i = arg_count; i < function.parameter_count; ++i) {
-            stack_at(i) = Value{};
+        // For varargs functions, copy fixed parameters to function registers
+        if (function.is_vararg) {
+            // Copy fixed parameters from vararg_base to function_stack_base
+            Size params_to_copy = std::min(arg_count, function.parameter_count);
+            for (Size i = 0; i < params_to_copy; ++i) {
+                // Copy from vararg position to function register position
+                // Use absolute stack indexing to avoid confusion
+                Value param_value = stack_[vararg_base + i];
+                stack_[function_stack_base + i] = param_value;
+                VM_LOG_DEBUG("Copied parameter[{}] from stack[{}] to stack[{}]: {}",
+                             i,
+                             vararg_base + i,
+                             function_stack_base + i,
+                             param_value.debug_string());
+            }
+
+            // Initialize remaining fixed parameters to nil
+            for (Size i = params_to_copy; i < function.parameter_count; ++i) {
+                stack_at(function_stack_base + i) = Value{};
+                VM_LOG_DEBUG(
+                    "Initialized parameter[{}] at stack[{}] to nil", i, function_stack_base + i);
+            }
+        } else {
+            // For non-varargs functions, initialize local variables beyond parameters to nil
+            for (Size i = arg_count; i < function.parameter_count; ++i) {
+                stack_at(i) = Value{};
+            }
         }
 
         VM_LOG_DEBUG("Setup call frame: function={}, args={}, params={}, stack_base={}, varargs={}",

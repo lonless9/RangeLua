@@ -1908,9 +1908,17 @@ namespace rangelua::backend {
         } else {
             // Global function declaration: function name(...) ... end
             if (const auto* identifier = dynamic_cast<const frontend::IdentifierExpression*>(&node.name())) {
-                // Global function assignment
+                // Global function assignment using SETTABUP: UpValue[A][K[B]] := R[C]
                 Size const_index = emitter_.add_constant(identifier->name());
-                emitter_.emit_abx(OpCode::OP_SETTABUP, func_reg, static_cast<std::uint32_t>(const_index));
+                CODEGEN_LOG_DEBUG("Emitting SETTABUP for global function '{}': upvalue=0, "
+                                  "key=K[{}], value=R[{}]",
+                                  identifier->name(),
+                                  const_index,
+                                  func_reg);
+                emitter_.emit_abc(OpCode::OP_SETTABUP,
+                                  0,  // A: upvalue index (0 for _ENV)
+                                  static_cast<Register>(const_index),  // B: constant index for key
+                                  func_reg);                           // C: value register
             } else {
                 // Complex function name (e.g., table.func or obj:method)
                 // For now, log that this is not implemented

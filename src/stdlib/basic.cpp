@@ -459,6 +459,7 @@ namespace rangelua::stdlib::basic {
             if (std::holds_alternative<std::string>(str_result)) {
                 const std::string& str = std::get<std::string>(str_result);
                 if (str == "#") {
+                    // Return count of arguments excluding the index argument
                     return {runtime::Value(static_cast<Number>(args.size() - 1))};
                 }
             }
@@ -469,17 +470,25 @@ namespace rangelua::stdlib::basic {
             auto num_result = index_value.to_number();
             if (std::holds_alternative<double>(num_result)) {
                 int index = static_cast<int>(std::get<double>(num_result));
+                int total_args = static_cast<int>(args.size()) - 1;  // Exclude index argument
 
+                // Handle negative indices (count from end)
                 if (index < 0) {
-                    index = static_cast<int>(args.size()) + index;
+                    index = total_args + index + 1;
                 }
 
-                if (index >= 1 && index <= static_cast<int>(args.size())) {
+                // Validate index range (1-based indexing)
+                if (index >= 1 && index <= total_args) {
                     std::vector<runtime::Value> result;
+                    // Start from the specified index (accounting for 0-based args array)
+                    // args[0] is the index, args[1] is the first actual argument
                     for (auto i = static_cast<size_t>(index); i < args.size(); ++i) {
                         result.push_back(args[i]);
                     }
                     return result;
+                } else if (index > total_args) {
+                    // Index beyond available arguments - return empty
+                    return {};
                 }
             }
         }
