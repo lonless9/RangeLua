@@ -4,18 +4,20 @@
  * @version 0.1.0
  */
 
-#include <rangelua/runtime/vm/arithmetic_strategies.hpp>
 #include <rangelua/backend/bytecode.hpp>
+#include <rangelua/runtime/metamethod.hpp>
 #include <rangelua/runtime/value.hpp>
+#include <rangelua/runtime/vm/arithmetic_strategies.hpp>
 #include <rangelua/utils/logger.hpp>
 
 namespace rangelua::runtime {
 
     // Helper function for arithmetic operations
     namespace {
-        Status perform_arithmetic_operation(IVMContext& context, Instruction instruction,
-                                           const char* op_name,
-                                           Value (*operation)(const Value&, const Value&)) {
+        Status perform_arithmetic_operation(IVMContext& context,
+                                            Instruction instruction,
+                                            const char* op_name,
+                                            Metamethod mm) {
             Register a = backend::InstructionEncoder::decode_a(instruction);
             Register b = backend::InstructionEncoder::decode_b(instruction);
             Register c = backend::InstructionEncoder::decode_c(instruction);
@@ -31,17 +33,50 @@ namespace rangelua::runtime {
                          right.debug_string(),
                          right.type_name());
 
-            Value result = operation(left, right);
+            Value result;
+
+            // Try direct numeric operation first for performance
+            if (left.is_number() && right.is_number()) {
+                // Direct numeric operations
+                switch (mm) {
+                    case Metamethod::ADD:
+                        result = left + right;
+                        break;
+                    case Metamethod::SUB:
+                        result = left - right;
+                        break;
+                    case Metamethod::MUL:
+                        result = left * right;
+                        break;
+                    case Metamethod::DIV:
+                        result = left / right;
+                        break;
+                    case Metamethod::MOD:
+                        result = left % right;
+                        break;
+                    case Metamethod::POW:
+                        result = left ^ right;
+                        break;
+                    default:
+                        result = Value{};  // nil
+                        break;
+                }
+            } else {
+                // Try metamethod using VM context
+                auto metamethod_result =
+                    MetamethodSystem::try_binary_metamethod(context, left, right, mm);
+                if (is_error(metamethod_result)) {
+                    VM_LOG_ERROR("Invalid arithmetic operation: cannot {} {} and {}",
+                                 op_name,
+                                 left.type_name(),
+                                 right.type_name());
+                    return ErrorCode::TYPE_ERROR;
+                }
+                result = get_value(metamethod_result);
+            }
 
             VM_LOG_DEBUG(
                 "{}: result = {} (type: {})", op_name, result.debug_string(), result.type_name());
-
-            // Check if the operation resulted in nil (error case)
-            if (result.is_nil() && (!left.is_nil() || !right.is_nil())) {
-                VM_LOG_ERROR("Invalid arithmetic operation: cannot {} {} and {}",
-                           op_name, left.type_name(), right.type_name());
-                return ErrorCode::TYPE_ERROR;
-            }
 
             context.stack_at(a) = std::move(result);
             return std::monostate{};
@@ -50,38 +85,32 @@ namespace rangelua::runtime {
 
     // AddStrategy implementation
     Status AddStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        return perform_arithmetic_operation(context, instruction, "ADD",
-                                          [](const Value& a, const Value& b) { return a + b; });
+        return perform_arithmetic_operation(context, instruction, "ADD", Metamethod::ADD);
     }
 
     // SubStrategy implementation
     Status SubStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        return perform_arithmetic_operation(context, instruction, "SUB",
-                                          [](const Value& a, const Value& b) { return a - b; });
+        return perform_arithmetic_operation(context, instruction, "SUB", Metamethod::SUB);
     }
 
     // MulStrategy implementation
     Status MulStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        return perform_arithmetic_operation(context, instruction, "MUL",
-                                          [](const Value& a, const Value& b) { return a * b; });
+        return perform_arithmetic_operation(context, instruction, "MUL", Metamethod::MUL);
     }
 
     // DivStrategy implementation
     Status DivStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        return perform_arithmetic_operation(context, instruction, "DIV",
-                                          [](const Value& a, const Value& b) { return a / b; });
+        return perform_arithmetic_operation(context, instruction, "DIV", Metamethod::DIV);
     }
 
     // ModStrategy implementation
     Status ModStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        return perform_arithmetic_operation(context, instruction, "MOD",
-                                          [](const Value& a, const Value& b) { return a % b; });
+        return perform_arithmetic_operation(context, instruction, "MOD", Metamethod::MOD);
     }
 
     // PowStrategy implementation
     Status PowStrategy::execute_impl(IVMContext& context, Instruction instruction) {
-        return perform_arithmetic_operation(context, instruction, "POW",
-                                          [](const Value& a, const Value& b) { return a ^ b; });
+        return perform_arithmetic_operation(context, instruction, "POW", Metamethod::POW);
     }
 
     // IDivStrategy implementation
@@ -117,11 +146,19 @@ namespace rangelua::runtime {
 
         VM_LOG_DEBUG("UNM: R[{}] := -R[{}]", a, b);
 
-        Value result = -operand;  // Unary minus
+        Value result;
 
-        if (result.is_nil() && !operand.is_nil()) {
-            VM_LOG_ERROR("Invalid arithmetic operation: cannot negate {}", operand.type_name());
-            return ErrorCode::TYPE_ERROR;
+        // Try direct numeric operation first for performance
+        if (operand.is_number()) {
+            result = -operand;  // Direct unary minus
+        } else {
+            // Try metamethod using VM context
+            auto metamethod_result = MetamethodSystem::try_unary_metamethod(context, operand, Metamethod::UNM);
+            if (is_error(metamethod_result)) {
+                VM_LOG_ERROR("Invalid arithmetic operation: cannot negate {}", operand.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+            result = get_value(metamethod_result);
         }
 
         context.stack_at(a) = std::move(result);

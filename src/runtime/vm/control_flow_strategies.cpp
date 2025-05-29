@@ -5,6 +5,7 @@
  */
 
 #include <rangelua/backend/bytecode.hpp>
+#include <rangelua/runtime/metamethod.hpp>
 #include <rangelua/runtime/value.hpp>
 #include <rangelua/runtime/vm.hpp>
 #include <rangelua/runtime/vm/control_flow_strategies.hpp>
@@ -34,8 +35,52 @@ namespace rangelua::runtime {
                      a, a + c - 2, a, a + 1, a + b - 1);
 
         if (!function.is_function()) {
-            VM_LOG_ERROR("Attempt to call a {} value", function.type_name());
-            return ErrorCode::TYPE_ERROR;
+            // Try __call metamethod for non-function values
+            auto metamethod_result =
+                MetamethodSystem::try_unary_metamethod(function, Metamethod::CALL);
+            if (is_error(metamethod_result)) {
+                VM_LOG_ERROR("Attempt to call a {} value", function.type_name());
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            // If __call metamethod exists, use it as the function
+            Value call_metamethod = get_value(metamethod_result);
+            if (!call_metamethod.is_function()) {
+                VM_LOG_ERROR("__call metamethod is not a function");
+                return ErrorCode::TYPE_ERROR;
+            }
+
+            // Prepare arguments with the original value as the first argument
+            std::vector<Value> args;
+            args.push_back(function);  // Add self as first argument
+
+            Size arg_count = (b == 0) ? context.stack_size() - a - 1 : b - 1;
+            for (Size i = 0; i < arg_count; ++i) {
+                args.push_back(context.stack_at(a + 1 + i));
+            }
+
+            // Call the metamethod
+            std::vector<Value> results;
+            auto call_status = context.call_function(call_metamethod, args, results);
+            if (std::holds_alternative<ErrorCode>(call_status)) {
+                VM_LOG_ERROR("__call metamethod call failed");
+                return std::get<ErrorCode>(call_status);
+            }
+
+            // Store results
+            Size result_count = (c == 0) ? results.size() : c - 1;
+            VM_LOG_DEBUG("Storing {} results from __call metamethod", result_count);
+
+            for (Size i = 0; i < result_count && i < results.size(); ++i) {
+                context.stack_at(a + i) = std::move(results[i]);
+            }
+
+            // Fill remaining result slots with nil if needed
+            for (Size i = results.size(); i < result_count; ++i) {
+                context.stack_at(a + i) = Value{};
+            }
+
+            return std::monostate{};
         }
 
         // Prepare arguments

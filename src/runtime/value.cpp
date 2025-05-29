@@ -51,6 +51,17 @@ namespace rangelua::runtime {
             oss << std::get<Number>(data_);
             return oss.str();
         }
+
+        // Try __tostring metamethod for other types
+        auto metamethod_result =
+            MetamethodSystem::try_unary_metamethod(*this, Metamethod::TOSTRING);
+        if (!is_error(metamethod_result)) {
+            Value result = get_value(metamethod_result);
+            if (result.is_string()) {
+                return std::get<String>(result.data_);
+            }
+        }
+
         return ErrorCode::TYPE_ERROR;
     }
 

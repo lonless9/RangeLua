@@ -22,48 +22,49 @@ namespace rangelua::runtime {
 
     /**
      * @brief Lua metamethod enumeration (matching Lua 5.5)
-     * 
+     *
      * Order is important and matches the official Lua implementation.
      * Fast-access metamethods (INDEX through EQ) are optimized.
      */
     enum class Metamethod : std::uint8_t {
         // Fast-access metamethods
-        INDEX = 0,      // __index
-        NEWINDEX,       // __newindex
-        GC,             // __gc
-        MODE,           // __mode
-        LEN,            // __len
-        EQ,             // __eq (last fast-access metamethod)
-        
+        INDEX = 0,  // __index
+        NEWINDEX,   // __newindex
+        GC,         // __gc
+        MODE,       // __mode
+        LEN,        // __len
+        EQ,         // __eq (last fast-access metamethod)
+
         // Arithmetic metamethods
-        ADD,            // __add
-        SUB,            // __sub
-        MUL,            // __mul
-        MOD,            // __mod
-        POW,            // __pow
-        DIV,            // __div
-        IDIV,           // __idiv
-        
+        ADD,   // __add
+        SUB,   // __sub
+        MUL,   // __mul
+        MOD,   // __mod
+        POW,   // __pow
+        DIV,   // __div
+        IDIV,  // __idiv
+
         // Bitwise metamethods
-        BAND,           // __band
-        BOR,            // __bor
-        BXOR,           // __bxor
-        SHL,            // __shl
-        SHR,            // __shr
-        
+        BAND,  // __band
+        BOR,   // __bor
+        BXOR,  // __bxor
+        SHL,   // __shl
+        SHR,   // __shr
+
         // Unary metamethods
-        UNM,            // __unm (unary minus)
-        BNOT,           // __bnot (bitwise not)
-        
+        UNM,   // __unm (unary minus)
+        BNOT,  // __bnot (bitwise not)
+
         // Comparison metamethods
-        LT,             // __lt
-        LE,             // __le
-        
+        LT,  // __lt
+        LE,  // __le
+
         // Other metamethods
-        CONCAT,         // __concat
-        CALL,           // __call
-        CLOSE,          // __close
-        
+        CONCAT,    // __concat
+        CALL,      // __call
+        TOSTRING,  // __tostring
+        CLOSE,     // __close
+
         // Count of metamethods
         COUNT
     };
@@ -71,37 +72,16 @@ namespace rangelua::runtime {
     /**
      * @brief Metamethod name constants
      */
-    constexpr std::array<std::string_view, static_cast<size_t>(Metamethod::COUNT)> METAMETHOD_NAMES = {
-        "__index",
-        "__newindex", 
-        "__gc",
-        "__mode",
-        "__len",
-        "__eq",
-        "__add",
-        "__sub",
-        "__mul",
-        "__mod",
-        "__pow",
-        "__div",
-        "__idiv",
-        "__band",
-        "__bor",
-        "__bxor",
-        "__shl",
-        "__shr",
-        "__unm",
-        "__bnot",
-        "__lt",
-        "__le",
-        "__concat",
-        "__call",
-        "__close"
-    };
+    constexpr std::array<std::string_view, static_cast<size_t>(Metamethod::COUNT)>
+        METAMETHOD_NAMES = {"__index",    "__newindex", "__gc",  "__mode", "__len",    "__eq",
+                            "__add",      "__sub",      "__mul", "__mod",  "__pow",    "__div",
+                            "__idiv",     "__band",     "__bor", "__bxor", "__shl",    "__shr",
+                            "__unm",      "__bnot",     "__lt",  "__le",   "__concat", "__call",
+                            "__tostring", "__close"};
 
     /**
      * @brief Fast-access metamethod mask
-     * 
+     *
      * Bit mask for fast-access metamethods (INDEX through EQ).
      * Used for optimization in metatable lookups.
      */
@@ -176,8 +156,19 @@ namespace rangelua::runtime {
          * @param args Arguments to pass
          * @return Result of metamethod call
          */
-        static Result<std::vector<Value>> call_metamethod(const Value& metamethod, 
-                                                         const std::vector<Value>& args);
+        static Result<std::vector<Value>> call_metamethod(const Value& metamethod,
+                                                          const std::vector<Value>& args);
+
+        /**
+         * @brief Call metamethod with arguments using VM context
+         * @param context VM context for calling Lua functions
+         * @param metamethod Metamethod function to call
+         * @param args Arguments to pass
+         * @return Result of metamethod call
+         */
+        static Result<std::vector<Value>> call_metamethod(class IVMContext& context,
+                                                          const Value& metamethod,
+                                                          const std::vector<Value>& args);
 
         /**
          * @brief Try binary operation with metamethod fallback
@@ -189,12 +180,35 @@ namespace rangelua::runtime {
         static Result<Value> try_binary_metamethod(const Value& left, const Value& right, Metamethod mm);
 
         /**
+         * @brief Try binary operation with metamethod fallback using VM context
+         * @param context VM context for calling Lua functions
+         * @param left Left operand
+         * @param right Right operand
+         * @param mm Metamethod to try
+         * @return Result value or error
+         */
+        static Result<Value> try_binary_metamethod(class IVMContext& context,
+                                                   const Value& left,
+                                                   const Value& right,
+                                                   Metamethod mm);
+
+        /**
          * @brief Try unary operation with metamethod fallback
          * @param operand Operand
          * @param mm Metamethod to try
          * @return Result value or error
          */
         static Result<Value> try_unary_metamethod(const Value& operand, Metamethod mm);
+
+        /**
+         * @brief Try unary operation with metamethod fallback using VM context
+         * @param context VM context for calling Lua functions
+         * @param operand Operand
+         * @param mm Metamethod to try
+         * @return Result value or error
+         */
+        static Result<Value>
+        try_unary_metamethod(class IVMContext& context, const Value& operand, Metamethod mm);
 
         /**
          * @brief Try comparison with metamethod fallback
@@ -204,6 +218,19 @@ namespace rangelua::runtime {
          * @return Comparison result or error
          */
         static Result<bool> try_comparison_metamethod(const Value& left, const Value& right, Metamethod mm);
+
+        /**
+         * @brief Try comparison with metamethod fallback using VM context
+         * @param context VM context for calling Lua functions
+         * @param left Left operand
+         * @param right Right operand
+         * @param mm Metamethod to try
+         * @return Comparison result or error
+         */
+        static Result<bool> try_comparison_metamethod(class IVMContext& context,
+                                                      const Value& left,
+                                                      const Value& right,
+                                                      Metamethod mm);
     };
 
     /**
@@ -214,7 +241,7 @@ namespace rangelua::runtime {
         Value left_operand;
         Value right_operand;
         bool has_right_operand = true;
-        
+
         // For immediate and constant operations
         std::optional<Number> immediate_value;
         std::optional<Size> constant_index;
