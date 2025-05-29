@@ -2,42 +2,42 @@
 -- Expected output:
 -- Edge Case Testing
 -- =================
--- 
+--
 -- Arithmetic Edge Cases:
 -- Division by small number: 1000000
 -- Large number arithmetic: 2000000
 -- Zero operations: 0 0 0
 -- Negative number operations: -15 5 -50 -2
--- 
+--
 -- Boolean Logic Edge Cases:
 -- Complex boolean: false
 -- Short circuit AND: first condition false
 -- Short circuit OR: second condition true
--- 
+--
 -- Variable Scope Edge Cases:
 -- Global x: 100
 -- Local x in block: 200
 -- Global x after block: 100
--- 
+--
 -- Control Flow Edge Cases:
 -- Empty loop completed
 -- Single iteration: 1
 -- Nested loop: 1,1 1,2 2,1 2,2
--- 
+--
 -- Type Conversion Edge Cases:
 -- String to number context: 15
 -- Number to string context: Value: 42
 -- Boolean in arithmetic: 1 0
--- 
+--
 -- Boundary Value Tests:
 -- Zero boundary: exactly zero
 -- Negative boundary: negative
 -- Large number: very large
--- 
+--
 -- Error Handling Tests:
 -- Nil access handled
 -- Division by zero: inf
--- 
+--
 -- All edge case tests completed!
 -- Description: Tests edge cases, boundary conditions, and potential error scenarios
 
@@ -109,10 +109,10 @@ for i = 5, 5 do
 end
 
 -- Nested loops
-print("Nested loop:", end="")
+print("Nested loop:")
 for i = 1, 2 do
     for j = 1, 2 do
-        print(i .. "," .. j, end=" ")
+        print(i .. "," .. j .. "\n")
     end
 end
 print("")

@@ -778,6 +778,32 @@ namespace rangelua::runtime {
             oss << std::get<Number>(value.data_);
             return oss.str();
         }
+        if (value.is_nil()) {
+            return String("nil");
+        }
+        if (value.is_boolean()) {
+            return value.as_boolean() ? String("true") : String("false");
+        }
+        if (value.is_table()) {
+            std::ostringstream oss;
+            oss << "table: " << std::get<TablePtr>(value.data_).get();
+            return oss.str();
+        }
+        if (value.is_function()) {
+            std::ostringstream oss;
+            oss << "function: " << std::get<FunctionPtr>(value.data_).get();
+            return oss.str();
+        }
+        if (value.is_userdata()) {
+            std::ostringstream oss;
+            oss << "userdata: " << std::get<UserdataPtr>(value.data_).get();
+            return oss.str();
+        }
+        if (value.is_thread()) {
+            std::ostringstream oss;
+            oss << "thread: " << std::get<ThreadPtr>(value.data_).get();
+            return oss.str();
+        }
         return ErrorCode::TYPE_ERROR;
     }
 
