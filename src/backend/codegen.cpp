@@ -556,6 +556,17 @@ namespace rangelua::backend {
     void CodeGenerator::visit(const frontend::BinaryOpExpression& node) {
         CODEGEN_LOG_DEBUG("Generating code for binary operation");
 
+        // Handle logical operators specially for short-circuit evaluation
+        if (node.operator_type() == frontend::BinaryOpExpression::Operator::And) {
+            generate_logical_and_expression(node.left(), node.right());
+            return;
+        }
+        if (node.operator_type() == frontend::BinaryOpExpression::Operator::Or) {
+            generate_logical_or_expression(node.left(), node.right());
+            return;
+        }
+
+        // For all other operators, evaluate both operands first
         // Generate code for left operand
         node.left().accept(*this);
         if (!current_expression_.has_value()) {
@@ -785,6 +796,126 @@ namespace rangelua::backend {
 
         CODEGEN_LOG_DEBUG(
             "Logical OR generated: R[{}] := R[{}] or R[{}]", result_reg, left_reg, right_reg);
+    }
+
+    void CodeGenerator::generate_logical_and_expression(const frontend::Expression& left_expr,
+                                                        const frontend::Expression& right_expr) {
+        CODEGEN_LOG_DEBUG("Generating logical AND expression with short-circuit evaluation");
+
+        // Allocate register for result
+        Register result_reg = register_allocator_.reserve_registers(1);
+
+        // Lua AND semantics: if left is falsy, return left; otherwise return right
+        // Implementation:
+        // 1. Evaluate left operand
+        // 2. Move left to result register
+        // 3. Test left operand - if falsy, skip right evaluation
+        // 4. Evaluate right operand and move to result register
+
+        // Generate code for left operand
+        left_expr.accept(*this);
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Left operand did not produce expression");
+            return;
+        }
+        ExpressionDesc left_expr_desc = current_expression_.value();
+
+        // Convert left operand to register
+        Register left_reg = expression_to_any_register(left_expr_desc);
+
+        // Move left value to result register initially
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, left_reg, 0);
+
+        // Test left operand - if falsy (nil or false), skip right evaluation
+        emitter_.emit_abc(OpCode::OP_TEST, left_reg, 0, 0);  // Jump if left is falsy
+        Size skip_right_jump = jump_manager_.emit_jump();
+
+        // Left is truthy, evaluate right operand
+        right_expr.accept(*this);
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Right operand did not produce expression");
+            return;
+        }
+        ExpressionDesc right_expr_desc = current_expression_.value();
+        Register right_reg = expression_to_any_register(right_expr_desc);
+
+        // Move right value to result register (overwriting left)
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, right_reg, 0);
+
+        // Patch the skip jump to here
+        Size end_pos = jump_manager_.current_instruction();
+        jump_manager_.patch_jump(skip_right_jump, end_pos);
+
+        // Free operand registers
+        free_expressions(left_expr_desc, right_expr_desc);
+
+        // Set result expression
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = result_reg;
+        current_expression_ = result_expr;
+
+        CODEGEN_LOG_DEBUG("Logical AND expression generated: R[{}] := left and right", result_reg);
+    }
+
+    void CodeGenerator::generate_logical_or_expression(const frontend::Expression& left_expr,
+                                                       const frontend::Expression& right_expr) {
+        CODEGEN_LOG_DEBUG("Generating logical OR expression with short-circuit evaluation");
+
+        // Allocate register for result
+        Register result_reg = register_allocator_.reserve_registers(1);
+
+        // Lua OR semantics: if left is truthy, return left; otherwise return right
+        // Implementation:
+        // 1. Evaluate left operand
+        // 2. Move left to result register
+        // 3. Test left operand - if truthy, skip right evaluation
+        // 4. Evaluate right operand and move to result register
+
+        // Generate code for left operand
+        left_expr.accept(*this);
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Left operand did not produce expression");
+            return;
+        }
+        ExpressionDesc left_expr_desc = current_expression_.value();
+
+        // Convert left operand to register
+        Register left_reg = expression_to_any_register(left_expr_desc);
+
+        // Move left value to result register initially
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, left_reg, 0);
+
+        // Test left operand - if truthy, skip right evaluation
+        emitter_.emit_abc(OpCode::OP_TEST, left_reg, 0, 1);  // Jump if left is truthy (k=1)
+        Size skip_right_jump = jump_manager_.emit_jump();
+
+        // Left is falsy, evaluate right operand
+        right_expr.accept(*this);
+        if (!current_expression_.has_value()) {
+            CODEGEN_LOG_ERROR("Right operand did not produce expression");
+            return;
+        }
+        ExpressionDesc right_expr_desc = current_expression_.value();
+        Register right_reg = expression_to_any_register(right_expr_desc);
+
+        // Move right value to result register (overwriting left)
+        emitter_.emit_abc(OpCode::OP_MOVE, result_reg, right_reg, 0);
+
+        // Patch the skip jump to here
+        Size end_pos = jump_manager_.current_instruction();
+        jump_manager_.patch_jump(skip_right_jump, end_pos);
+
+        // Free operand registers
+        free_expressions(left_expr_desc, right_expr_desc);
+
+        // Set result expression
+        ExpressionDesc result_expr;
+        result_expr.kind = ExpressionKind::NONRELOC;
+        result_expr.u.info = result_reg;
+        current_expression_ = result_expr;
+
+        CODEGEN_LOG_DEBUG("Logical OR expression generated: R[{}] := left or right", result_reg);
     }
 
     void CodeGenerator::generate_concat_operation(ExpressionDesc& left_expr,

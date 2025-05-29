@@ -488,6 +488,10 @@ namespace rangelua::backend {
         void generate_logical_or(ExpressionDesc& left_expr,
                                  ExpressionDesc& right_expr,
                                  Register result_reg);
+        void generate_logical_and_expression(const frontend::Expression& left_expr,
+                                             const frontend::Expression& right_expr);
+        void generate_logical_or_expression(const frontend::Expression& left_expr,
+                                            const frontend::Expression& right_expr);
         void generate_concat_operation(ExpressionDesc& left_expr, ExpressionDesc& right_expr);
 
         // Loop context helpers
