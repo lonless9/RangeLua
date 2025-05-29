@@ -5,6 +5,7 @@
  */
 
 #include <rangelua/core/error.hpp>
+#include <rangelua/runtime/metamethod.hpp>
 #include <rangelua/runtime/objects.hpp>
 #include <rangelua/runtime/vm.hpp>
 #include <rangelua/runtime/vm/all_strategies.hpp>
@@ -383,7 +384,12 @@ namespace rangelua::runtime {
             if (function_ptr->isCFunction()) {
                 VM_LOG_DEBUG("Calling C function with {} arguments", args.size());
                 try {
-                    results = function_ptr->call(args);
+                    // Special handling for tostring function to support metamethods
+                    if (is_tostring_function(function_ptr)) {
+                        results = call_tostring_with_metamethod(args);
+                    } else {
+                        results = function_ptr->call(args);
+                    }
                     return std::monostate{};
                 } catch (const std::exception& e) {
                     VM_LOG_ERROR("C function call failed: {}", e.what());
@@ -1026,6 +1032,65 @@ namespace rangelua::runtime {
             upvalue->next = nullptr;
             upvalue->previous = nullptr;
         }
+    }
+
+    bool VirtualMachine::is_tostring_function(const GCPtr<Function>& function) const {
+        // Check if this is the tostring function by comparing with the global tostring
+        Value global_tostring = get_global("tostring");
+        if (global_tostring.is_function()) {
+            auto global_tostring_result = global_tostring.to_function();
+            if (!is_error(global_tostring_result)) {
+                auto global_function_ptr = get_value(global_tostring_result);
+                return function.get() == global_function_ptr.get();
+            }
+        }
+        return false;
+    }
+
+    std::vector<Value>
+    VirtualMachine::call_tostring_with_metamethod(const std::vector<Value>& args) {
+        if (args.empty()) {
+            return {Value("nil")};
+        }
+
+        const auto& value = args[0];
+
+        // Handle basic types that don't need metamethods
+        if (value.is_nil()) {
+            return {Value("nil")};
+        }
+        if (value.is_boolean()) {
+            return {Value(value.as_boolean() ? "true" : "false")};
+        }
+        if (value.is_string()) {
+            return {value};
+        }
+        if (value.is_number()) {
+            Number num = value.as_number();
+            // Format number similar to Lua's default formatting
+            if (num == static_cast<double>(static_cast<Int>(num))) {
+                return {Value(std::to_string(static_cast<Int>(num)))};
+            } else {
+                std::string result = std::to_string(num);
+                // Remove trailing zeros
+                result.erase(result.find_last_not_of('0') + 1, std::string::npos);
+                result.erase(result.find_last_not_of('.') + 1, std::string::npos);
+                return {Value(result)};
+            }
+        }
+
+        // For other types (table, function, userdata, thread), try __tostring metamethod
+        auto metamethod_result =
+            MetamethodSystem::try_unary_metamethod(*this, value, Metamethod::TOSTRING);
+        if (!is_error(metamethod_result)) {
+            Value result = get_value(metamethod_result);
+            if (result.is_string()) {
+                return {result};
+            }
+        }
+
+        // Fallback to default representation
+        return {Value(value.debug_string())};
     }
 
     // ExecutionContext implementation

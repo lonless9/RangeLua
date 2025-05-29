@@ -807,6 +807,53 @@ namespace rangelua::runtime {
         return ErrorCode::TYPE_ERROR;
     }
 
+    Result<Value::String> Value::tostring_with_metamethod(const Value& value) {
+        // Handle basic types that don't need metamethods
+        if (value.is_nil()) {
+            return String("nil");
+        }
+        if (value.is_boolean()) {
+            return value.as_boolean() ? String("true") : String("false");
+        }
+        if (value.is_string()) {
+            return value.as_string();
+        }
+        if (value.is_number()) {
+            Number num = value.as_number();
+            // Format number similar to Lua's default formatting
+            if (num == static_cast<double>(static_cast<Int>(num))) {
+                return std::to_string(static_cast<Int>(num));
+            } else {
+                std::string result = std::to_string(num);
+                // Remove trailing zeros
+                result.erase(result.find_last_not_of('0') + 1, std::string::npos);
+                result.erase(result.find_last_not_of('.') + 1, std::string::npos);
+                return result;
+            }
+        }
+
+        // For other types (table, function, userdata, thread), try __tostring metamethod
+        // First check if there's a metamethod available
+        Value metamethod = MetamethodSystem::get_metamethod(value, Metamethod::TOSTRING);
+        if (!metamethod.is_nil()) {
+            // Try to call the metamethod (this will only work for C functions without VM context)
+            auto metamethod_result =
+                MetamethodSystem::try_unary_metamethod(value, Metamethod::TOSTRING);
+            if (!is_error(metamethod_result)) {
+                Value result = get_value(metamethod_result);
+                if (result.is_string()) {
+                    return result.as_string();
+                }
+            }
+            // If metamethod call failed (likely because it's a Lua function),
+            // we can't call it from here without VM context.
+            // This is a limitation that should be addressed by calling tostring from VM level.
+        }
+
+        // Fallback to default representation
+        return value.debug_string();
+    }
+
     bool Value::are_comparable(const Value& a, const Value& b) noexcept {
         // In Lua, values are comparable if they are the same type
         // or if both can be coerced to numbers

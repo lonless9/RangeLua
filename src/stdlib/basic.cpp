@@ -203,49 +203,15 @@ namespace rangelua::stdlib::basic {
         }
 
         const auto& value = args[0];
-        std::string result;
 
-        // Note: __tostring metamethod handling should be implemented at the VM level
-        // For now, we use default tostring behavior for all values
-
-        // Default tostring behavior
-        if (value.is_nil()) {
-            result = "nil";
-        } else if (value.is_boolean()) {
-            auto bool_result = value.to_boolean();
-            if (std::holds_alternative<bool>(bool_result)) {
-                result = std::get<bool>(bool_result) ? "true" : "false";
-            } else {
-                result = "nil";
-            }
-        } else if (value.is_number()) {
-            auto num_result = value.to_number();
-            if (std::holds_alternative<double>(num_result)) {
-                double num = std::get<double>(num_result);
-                if (num == static_cast<double>(static_cast<Int>(num))) {
-                    result = std::to_string(static_cast<Int>(num));
-                } else {
-                    result = std::to_string(num);
-                    // Remove trailing zeros
-                    result.erase(result.find_last_not_of('0') + 1, std::string::npos);
-                    result.erase(result.find_last_not_of('.') + 1, std::string::npos);
-                }
-            } else {
-                result = "nil";
-            }
-        } else if (value.is_string()) {
-            auto str_result = value.to_string();
-            if (std::holds_alternative<std::string>(str_result)) {
-                result = std::get<std::string>(str_result);
-            } else {
-                result = "nil";
-            }
-        } else {
-            // For other types (tables, functions, etc.), use debug string with address
-            result = value.debug_string();
+        // Use the proper tostring conversion that handles metamethods
+        auto str_result = runtime::Value::tostring_with_metamethod(value);
+        if (std::holds_alternative<std::string>(str_result)) {
+            return {runtime::Value(std::get<std::string>(str_result))};
         }
 
-        return {runtime::Value(result)};
+        // Fallback to debug string if metamethod conversion fails
+        return {runtime::Value(value.debug_string())};
     }
 
     std::vector<runtime::Value> tonumber(const std::vector<runtime::Value>& args) {

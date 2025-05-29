@@ -227,6 +227,9 @@ namespace rangelua::runtime {
         [[nodiscard]] String debug_string() const;
         [[nodiscard]] Size hash() const noexcept;
 
+        // Static tostring method with metamethod support
+        [[nodiscard]] static Result<String> tostring_with_metamethod(const Value& value);
+
         // Raw access (use with caution)
         [[nodiscard]] const ValueVariant& raw() const noexcept { return data_; }
         ValueVariant& raw() noexcept { return data_; }

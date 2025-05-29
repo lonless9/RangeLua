@@ -393,6 +393,10 @@ namespace rangelua::runtime {
 
         // Helper methods
         Value constant_to_value(const backend::ConstantValue& constant);
+
+        // Special function handling
+        bool is_tostring_function(const GCPtr<Function>& function) const;
+        std::vector<Value> call_tostring_with_metamethod(const std::vector<Value>& args);
     };
 
     /**
