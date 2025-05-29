@@ -1,6 +1,6 @@
-# RangeLua 🚀
+# RangeLua ⚡
 
-A Lua 5.5 interpreter implementation in C++20.
+A Lua 5.5 JIT interpreter implementation in C++20.
 
 ## ⚠️ Important Notice
 
@@ -63,7 +63,7 @@ xmake run rangelua --module-log parser:debug script.lua
 - 📝 Module-specific logging
 
 ### 🚧 In Development
-- 📖 Other Stdlib
+- 📖 Other stdlib
 - 🔄 Coroutines
 - ⚠️ Error handling improvements
 
