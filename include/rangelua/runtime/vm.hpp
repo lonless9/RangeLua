@@ -269,6 +269,13 @@ namespace rangelua::runtime {
         Status setup_call_frame(const backend::BytecodeFunction& function, Size arg_count) override;
 
         /**
+         * @brief Setup call frame with explicit stack base
+         */
+        Status setup_call_frame(const backend::BytecodeFunction& function,
+                                Size arg_count,
+                                Size stack_base);
+
+        /**
          * @brief Return from function
          */
         Status return_from_function(Size result_count) override;

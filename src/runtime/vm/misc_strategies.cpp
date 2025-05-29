@@ -93,8 +93,9 @@ namespace rangelua::runtime {
             return ErrorCode::RUNTIME_ERROR;
         }
 
-        Size vararg_count_requested = (c == 0) ? current_frame->vararg_count() : (c - 1);
+        // Calculate how many varargs to copy
         Size vararg_count_available = current_frame->vararg_count();
+        Size vararg_count_requested = (c == 0) ? vararg_count_available : (c - 1);
 
         VM_LOG_DEBUG("VARARG: Requested {} varargs, {} available",
                      vararg_count_requested,
@@ -104,14 +105,25 @@ namespace rangelua::runtime {
         for (Size i = 0; i < vararg_count_requested; ++i) {
             if (i < vararg_count_available) {
                 // Copy actual vararg value
-                // Varargs are stored after the fixed parameters in the stack
-                Size vararg_stack_pos = current_frame->stack_base + current_frame->parameter_count + i;
-                context.stack_at(a + i) = context.stack_at(vararg_stack_pos);
-                VM_LOG_DEBUG("VARARG: R[{}] = vararg[{}] from stack[{}] = {}",
-                             a + i,
-                             i,
-                             vararg_stack_pos,
-                             context.stack_at(a + i).debug_string());
+                // Varargs are stored after the fixed parameters in the current call frame
+                // The vararg_base points to where varargs start (absolute stack position)
+                Size vararg_stack_pos = current_frame->vararg_base + i;
+
+                // Access the stack directly since vararg_stack_pos is already absolute
+                auto* vm_ptr = dynamic_cast<VirtualMachine*>(&context);
+                if (vm_ptr && vararg_stack_pos < vm_ptr->stack_size()) {
+                    context.stack_at(a + i) = vm_ptr->get_stack(vararg_stack_pos);
+                    VM_LOG_DEBUG("VARARG: R[{}] = vararg[{}] from stack[{}] = {}",
+                                 a + i,
+                                 i,
+                                 vararg_stack_pos,
+                                 context.stack_at(a + i).debug_string());
+                } else {
+                    context.stack_at(a + i) = Value{};
+                    VM_LOG_DEBUG("VARARG: R[{}] = nil (vararg stack position {} out of bounds)",
+                                 a + i,
+                                 vararg_stack_pos);
+                }
             } else {
                 // Fill remaining with nil
                 context.stack_at(a + i) = Value{};

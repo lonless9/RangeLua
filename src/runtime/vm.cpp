@@ -619,8 +619,26 @@ namespace rangelua::runtime {
                          bytecode_func.constants.size(),
                          bytecode_func.instructions.size());
 
-            // Setup call frame for the function
-            auto setup_result = setup_call_frame(bytecode_func, args.size());
+            // Push arguments onto stack first, before setting up call frame
+            function_call_base = stack_top_;
+            VM_LOG_DEBUG("Before pushing args: function_call_base={}, stack_top_={}",
+                         function_call_base,
+                         stack_top_);
+
+            for (Size i = 0; i < args.size(); ++i) {
+                push(args[i]);
+                VM_LOG_DEBUG(
+                    "Pushed arg[{}] = {} to stack[{}]", i, args[i].debug_string(), stack_top_ - 1);
+            }
+
+            VM_LOG_DEBUG(
+                "Function call: function_call_base={}, stack_top_after_push={}, args.size()={}",
+                function_call_base,
+                stack_top_,
+                args.size());
+
+            // Setup call frame for the function, using the base where arguments start
+            auto setup_result = setup_call_frame(bytecode_func, args.size(), function_call_base);
             if (std::holds_alternative<ErrorCode>(setup_result)) {
                 VM_LOG_ERROR("Failed to setup call frame for Lua function");
                 return std::get<ErrorCode>(setup_result);
@@ -630,11 +648,6 @@ namespace rangelua::runtime {
             if (!call_stack_.empty()) {
                 call_stack_.back().closure = function;
                 VM_LOG_DEBUG("Setting up closure with {} upvalues", function->upvalueCount());
-            }
-
-            // Push arguments onto stack
-            for (const auto& arg : args) {
-                push(arg);
             }
 
             // If this is a closure, setup upvalues
@@ -671,8 +684,8 @@ namespace rangelua::runtime {
 
             // After function execution, the return values should be placed starting at the
             // call frame's stack_base (which is where return_from_function places them)
-            // The call frame was set up with stack_base = stack_top_ - arg_count
-            Size function_base = function_call_base - args.size();
+            // function_call_base is where arguments were pushed, so that's our function_base
+            Size function_base = function_call_base;
 
             VM_LOG_DEBUG("Function execution completed. function_call_base={}, args.size()={}, "
                          "calculated_function_base={}, current_stack_top={}",
@@ -793,7 +806,8 @@ namespace rangelua::runtime {
     }
 
     Status VirtualMachine::setup_call_frame(const backend::BytecodeFunction& function,
-                                            Size arg_count) {
+                                            Size arg_count,
+                                            Size stack_base) {
         if (call_stack_.size() >= config_.call_stack_size) {
             return ErrorCode::STACK_OVERFLOW;
         }
@@ -803,12 +817,40 @@ namespace rangelua::runtime {
         ensure_stack_size(required_stack);
 
         // Create call frame with enhanced vararg support
+        // stack_base points to where the function's registers start (where arguments are)
+        // vararg_base points to where extra arguments (varargs) start
+        // Use the provided stack_base parameter instead of calculating it
+
+        // For vararg functions, we need to adjust the stack layout
+        // Arguments are at stack_base, but function registers start after varargs
+        Size function_stack_base = stack_base;
+        Size vararg_base = stack_base;
+
+        if (function.is_vararg) {
+            // For vararg functions, varargs start at the beginning of arguments
+            vararg_base = stack_base;
+            // Function registers start after all arguments (which become varargs)
+            function_stack_base = stack_base + arg_count;
+        }
+
         CallFrame frame(&function,
-                        stack_top_ - arg_count,
+                        function_stack_base,
                         function.parameter_count,
                         function.parameter_count,
                         arg_count,
                         function.is_vararg);
+
+        frame.vararg_base = vararg_base;
+
+        VM_LOG_DEBUG("CallFrame setup: original_stack_base={}, function_stack_base={}, "
+                     "parameter_count={}, arg_count={}, "
+                     "vararg_base={}, is_vararg={}",
+                     stack_base,
+                     function_stack_base,
+                     function.parameter_count,
+                     arg_count,
+                     frame.vararg_base,
+                     function.is_vararg);
 
         VM_LOG_DEBUG("Function is_vararg flag: {}", function.is_vararg);
 
@@ -854,6 +896,13 @@ namespace rangelua::runtime {
         }
 
         return std::monostate{};
+    }
+
+    Status VirtualMachine::setup_call_frame(const backend::BytecodeFunction& function,
+                                            Size arg_count) {
+        // Use the old behavior: calculate stack_base from current stack_top_
+        Size stack_base = stack_top_ - arg_count;
+        return setup_call_frame(function, arg_count, stack_base);
     }
 
     void VirtualMachine::set_error(ErrorCode code) {
