@@ -89,9 +89,9 @@ namespace rangelua::backend {
         /**
          * @brief Reserve n registers starting from freereg (Lua 5.5: luaK_reserveregs)
          * @param n Number of registers to reserve
-         * @return Starting register index
+         * @return Starting register index or error
          */
-        Register reserve_registers(Size n);
+        Result<Register> reserve_registers(Size n);
 
         /**
          * @brief Get next free register without allocating
@@ -103,8 +103,9 @@ namespace rangelua::backend {
          * @brief Free register if it's not a local variable (Lua 5.5: freereg)
          * @param reg Register to free
          * @param nvarstack Number of active local variables
+         * @return True if register was freed, false otherwise
          */
-        void free_register(Register reg, Size nvarstack);
+        bool free_register(Register reg, Size nvarstack);
 
         /**
          * @brief Free two registers in proper order (Lua 5.5: freeregs)
@@ -117,8 +118,9 @@ namespace rangelua::backend {
         /**
          * @brief Check and update stack size (Lua 5.5: luaK_checkstack)
          * @param needed Number of additional registers needed
+         * @return Success or error
          */
-        void check_stack(Size needed);
+        Status check_stack(Size needed);
 
         /**
          * @brief Get the highest used register (stack size)

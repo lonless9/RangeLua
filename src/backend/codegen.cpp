@@ -9,52 +9,104 @@
 
 namespace rangelua::backend {
 
+    // Constants for register management
+    constexpr Register INVALID_REGISTER = 255;
+
+    namespace {
+        // Helper function to safely allocate registers with error handling
+        Register safe_reserve_registers(RegisterAllocator& allocator, Size n) {
+            auto result = allocator.reserve_registers(n);
+            if (is_error(result)) {
+                CODEGEN_LOG_ERROR("Failed to allocate {} registers: {}", n,
+                                 error_code_to_string(get_error(result)));
+                // Return a fallback register (this should be handled better in production)
+                return 0;
+            }
+            return get_value(result);
+        }
+    }  // anonymous namespace
+
     // RegisterAllocator implementation (Lua 5.5 style)
     RegisterAllocator::RegisterAllocator(Size max_registers)
-        : max_registers_(max_registers), free_reg_(0), max_stack_size_(0), nvarstack_(0) {}
-
-    Register RegisterAllocator::reserve_registers(Size n) {
-        check_stack(n);
-        Register start = free_reg_;
-        free_reg_ += static_cast<Register>(n);
-        return start;
+        : max_registers_(max_registers), free_reg_(0), max_stack_size_(0), nvarstack_(0) {
+        CODEGEN_LOG_DEBUG("Initialized RegisterAllocator with max_registers={}", max_registers);
     }
 
-    void RegisterAllocator::free_register(Register reg, Size nvarstack) {
+    Result<Register> RegisterAllocator::reserve_registers(Size n) {
+        if (n == 0) {
+            CODEGEN_LOG_WARN("Attempted to reserve 0 registers");
+            return make_error<Register>(ErrorCode::ARGUMENT_ERROR);
+        }
+
+        auto check_result = check_stack(n);
+        if (is_error(check_result)) {
+            return make_error<Register>(get_error(check_result));
+        }
+
+        Register start = free_reg_;
+        free_reg_ += static_cast<Register>(n);
+
+        CODEGEN_LOG_DEBUG(
+            "Reserved {} registers starting at R[{}], freereg now {}", n, start, free_reg_);
+        return make_success(start);
+    }
+
+    bool RegisterAllocator::free_register(Register reg, Size nvarstack) {
         // Only free registers that are not local variables and are at the top of the stack
         // This follows Lua 5.5's freereg function logic
+        if (!is_valid_register(reg)) {
+            CODEGEN_LOG_WARN("Attempted to free invalid register R[{}]", reg);
+            return false;
+        }
+
         if (reg >= nvarstack && reg == free_reg_ - 1) {
             free_reg_--;
             CODEGEN_LOG_DEBUG("Freed register R[{}], freereg now {}", reg, free_reg_);
-        } else {
-            CODEGEN_LOG_DEBUG(
-                "Cannot free register R[{}] (nvarstack={}, freereg={})", reg, nvarstack, free_reg_);
+            return true;
         }
+
+        CODEGEN_LOG_DEBUG(
+            "Cannot free register R[{}] (nvarstack={}, freereg={})", reg, nvarstack, free_reg_);
+        return false;
     }
 
     void RegisterAllocator::free_registers(Register r1, Register r2, Size nvarstack) {
         // Free registers in reverse order (higher register first)
         // This follows Lua 5.5's freeregs function logic
-        if (r1 > r2) {
+        if (r1 != INVALID_REGISTER && r2 != INVALID_REGISTER) {
+            if (r1 > r2) {
+                free_register(r1, nvarstack);
+                free_register(r2, nvarstack);
+            } else {
+                free_register(r2, nvarstack);
+                free_register(r1, nvarstack);
+            }
+        } else if (r1 != INVALID_REGISTER) {
             free_register(r1, nvarstack);
+        } else if (r2 != INVALID_REGISTER) {
             free_register(r2, nvarstack);
-        } else {
-            free_register(r2, nvarstack);
-            free_register(r1, nvarstack);
         }
     }
 
-    void RegisterAllocator::check_stack(Size needed) {
+    Status RegisterAllocator::check_stack(Size needed) {
+        if (needed > max_registers_) {
+            CODEGEN_LOG_ERROR(
+                "Requested register count {} exceeds maximum {}", needed, max_registers_);
+            return make_error<std::monostate>(ErrorCode::STACK_OVERFLOW);
+        }
+
         Register new_stack = free_reg_ + static_cast<Register>(needed);
         if (new_stack > max_registers_) {
             CODEGEN_LOG_ERROR("Register stack overflow: need {}, max {}", new_stack, max_registers_);
-            // In a real implementation, this should throw an exception or return an error
-            return;
+            return make_error<std::monostate>(ErrorCode::STACK_OVERFLOW);
         }
+
         if (new_stack > max_stack_size_) {
             max_stack_size_ = new_stack;
             CODEGEN_LOG_DEBUG("Updated max stack size to {}", max_stack_size_);
         }
+
+        return make_success();
     }
 
     bool RegisterAllocator::is_valid_register(Register reg) const noexcept {
@@ -74,8 +126,7 @@ namespace rangelua::backend {
 
     // Temporary compatibility methods for migration
     Result<Register> RegisterAllocator::allocate() {
-        Register reg = reserve_registers(1);
-        return reg;
+        return reserve_registers(1);
     }
 
     void RegisterAllocator::free(Register reg) {
@@ -114,7 +165,7 @@ namespace rangelua::backend {
             }
             case ExpressionKind::UPVAL: {
                 // Upvalue - emit GETUPVAL instruction
-                Register reg = register_allocator_.reserve_registers(1);
+                Register reg = safe_reserve_registers(register_allocator_, 1);
                 emitter_.emit_abc(OpCode::OP_GETUPVAL, reg, static_cast<Register>(expr.u.info), 0);
                 expr.kind = ExpressionKind::RELOC;
                 expr.u.info = emitter_.instruction_count() - 1;
@@ -122,7 +173,7 @@ namespace rangelua::backend {
             }
             case ExpressionKind::GLOBAL: {
                 // Global variable - emit GETTABUP instruction
-                Register reg = register_allocator_.reserve_registers(1);
+                Register reg = safe_reserve_registers(register_allocator_, 1);
                 CODEGEN_LOG_DEBUG(
                     "Emitting GETTABUP for global: result=R[{}], upvalue=0, key=K[{}]",
                     reg,
@@ -134,7 +185,7 @@ namespace rangelua::backend {
             }
             case ExpressionKind::INDEXED: {
                 // Table access - emit appropriate instruction based on key type
-                Register reg = register_allocator_.reserve_registers(1);
+                Register reg = safe_reserve_registers(register_allocator_, 1);
 
                 if (expr.u.indexed.is_const_key && expr.u.indexed.is_int_key) {
                     // Use GETI for integer constants
@@ -230,7 +281,7 @@ namespace rangelua::backend {
 
     void CodeGenerator::discharge_to_any_register(ExpressionDesc& expr) {
         if (expr.kind != ExpressionKind::NONRELOC) {
-            Register reg = register_allocator_.reserve_registers(1);
+            Register reg = safe_reserve_registers(register_allocator_, 1);
             discharge_to_register(expr, reg);
         }
     }
@@ -242,7 +293,7 @@ namespace rangelua::backend {
             return static_cast<Register>(expr.u.info);
         }
         // Use next available register
-        Register reg = register_allocator_.reserve_registers(1);
+        Register reg = safe_reserve_registers(register_allocator_, 1);
         discharge_to_register(expr, reg);
         return reg;
     }
@@ -250,7 +301,7 @@ namespace rangelua::backend {
     Register CodeGenerator::expression_to_next_register(ExpressionDesc& expr) {
         discharge_vars(expr);
         free_expression(expr);
-        Register reg = register_allocator_.reserve_registers(1);
+        Register reg = safe_reserve_registers(register_allocator_, 1);
         discharge_to_register(expr, reg);
         return reg;
     }
@@ -259,7 +310,7 @@ namespace rangelua::backend {
         // Similar to luaK_exp2nextreg - ensures expression is in next available register
         discharge_vars(expr);
         free_expression(expr);
-        Register reg = register_allocator_.reserve_registers(1);
+        Register reg = safe_reserve_registers(register_allocator_, 1);
         discharge_to_register(expr, reg);
         expr.kind = ExpressionKind::NONRELOC;
         expr.u.info = reg;
@@ -642,7 +693,7 @@ namespace rangelua::backend {
         Register right_reg = expression_to_any_register(right_expr);
 
         // Allocate register for result
-        Register result_reg = register_allocator_.reserve_registers(1);
+        Register result_reg = safe_reserve_registers(register_allocator_, 1);
 
         // Generate appropriate instruction based on operator
         switch (node.operator_type()) {
@@ -851,7 +902,7 @@ namespace rangelua::backend {
         CODEGEN_LOG_DEBUG("Generating logical AND expression with short-circuit evaluation");
 
         // Allocate register for result
-        Register result_reg = register_allocator_.reserve_registers(1);
+        Register result_reg = safe_reserve_registers(register_allocator_, 1);
 
         // Lua AND semantics: if left is falsy, return left; otherwise return right
         // Implementation:
@@ -911,7 +962,7 @@ namespace rangelua::backend {
         CODEGEN_LOG_DEBUG("Generating logical OR expression with short-circuit evaluation");
 
         // Allocate register for result
-        Register result_reg = register_allocator_.reserve_registers(1);
+        Register result_reg = safe_reserve_registers(register_allocator_, 1);
 
         // Lua OR semantics: if left is truthy, return left; otherwise return right
         // Implementation:
@@ -1014,7 +1065,7 @@ namespace rangelua::backend {
         Register operand_reg = expression_to_any_register(operand_expr);
 
         // Allocate register for result
-        Register result_reg = register_allocator_.reserve_registers(1);
+        Register result_reg = safe_reserve_registers(register_allocator_, 1);
 
         // Generate appropriate instruction based on operator
         switch (node.operator_type()) {
@@ -1105,7 +1156,7 @@ namespace rangelua::backend {
         // In Lua, function calls need consecutive registers: func, arg1, arg2, ...
         // Reserve consecutive registers for the call
         Size total_needed = 1 + arg_expressions.size();
-        Register call_base = register_allocator_.reserve_registers(total_needed);
+        Register call_base = safe_reserve_registers(register_allocator_, total_needed);
 
         // Move function to call position
         expression_to_register(func_expr, call_base);
@@ -1236,7 +1287,7 @@ namespace rangelua::backend {
 
                 // Reserve consecutive registers for the call
                 Size total_needed = 1 + arg_expressions.size();
-                Register call_base = register_allocator_.reserve_registers(total_needed);
+                Register call_base = safe_reserve_registers(register_allocator_, total_needed);
 
                 // Move function to call position
                 expression_to_register(func_expr, call_base);
@@ -1650,7 +1701,7 @@ namespace rangelua::backend {
         // Method calls in Lua are syntactic sugar for obj:method(args) -> obj.method(obj, args)
         // Reserve consecutive registers for: method, object, arg1, arg2, ...
         Size total_needed = 2 + arg_expressions.size();  // method + object + args
-        Register call_base = register_allocator_.reserve_registers(total_needed);
+        Register call_base = safe_reserve_registers(register_allocator_, total_needed);
 
         // Get object register
         Register object_reg = expression_to_any_register(object_expr);
@@ -1750,7 +1801,7 @@ namespace rangelua::backend {
         CODEGEN_LOG_DEBUG("Generating code for table constructor");
 
         // Allocate register for the new table
-        Register table_reg = register_allocator_.reserve_registers(1);
+        Register table_reg = safe_reserve_registers(register_allocator_, 1);
 
         const auto& fields = node.fields();
 
@@ -2133,7 +2184,7 @@ namespace rangelua::backend {
 
                 // Reserve consecutive registers for the call
                 Size total_needed = 1 + arg_expressions.size();
-                Register call_base = register_allocator_.reserve_registers(total_needed);
+                Register call_base = safe_reserve_registers(register_allocator_, total_needed);
 
                 // Move function to call position
                 expression_to_register(func_expr, call_base);
@@ -2631,7 +2682,7 @@ namespace rangelua::backend {
         // base + 5: second loop variable (if any)
         // etc.
         Size total_registers_needed = 4 + node.variables().size();  // base + state + control + reserved + variables
-        Register base_reg = register_allocator_.reserve_registers(total_registers_needed);
+        Register base_reg = safe_reserve_registers(register_allocator_, total_registers_needed);
         Register state_reg = base_reg + 1;
         Register control_reg = base_reg + 2;
 

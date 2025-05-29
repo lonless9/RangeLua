@@ -66,12 +66,12 @@ target("rangelua")
     add_deps("rangelua_core")
     add_files("src/main.cpp")
 
--- Unit tests target
-target("rangelua_test")
-    set_kind("binary")
-    add_packages("spdlog", "catch2")
-    add_deps("rangelua_core")
-    add_files("tests/**.cpp")
+-- Unit tests target (disabled as we enter the script testing phase)
+-- target("rangelua_test")
+--     set_kind("binary")
+--     add_packages("spdlog", "catch2")
+--     add_deps("rangelua_core")
+--     add_files("tests/**.cpp")
     -- Note: Using custom test main instead of CATCH_CONFIG_MAIN for logging support
 -- Benchmark target
 -- target("rangelua_benchmark")

@@ -64,11 +64,15 @@ TEST_CASE("RegisterAllocator functionality", "[codegen][register]") {
         RegisterAllocator allocator(10);
 
         // Test basic register reservation
-        Register reg1 = allocator.reserve_registers(1);
+        auto reg1_result = allocator.reserve_registers(1);
+        REQUIRE(is_success(reg1_result));
+        Register reg1 = get_value(reg1_result);
         REQUIRE(reg1 == 0);
         REQUIRE(allocator.next_free() == 1);
 
-        Register reg2 = allocator.reserve_registers(2);
+        auto reg2_result = allocator.reserve_registers(2);
+        REQUIRE(is_success(reg2_result));
+        Register reg2 = get_value(reg2_result);
         REQUIRE(reg2 == 1);
         REQUIRE(allocator.next_free() == 3);
 
@@ -81,9 +85,17 @@ TEST_CASE("RegisterAllocator functionality", "[codegen][register]") {
         allocator.set_nvarstack(2);  // First 2 registers are locals
 
         // Reserve some registers
-        Register reg1 = allocator.reserve_registers(1);                   // reg 0
-        [[maybe_unused]] Register reg2 = allocator.reserve_registers(1);  // reg 1
-        Register reg3 = allocator.reserve_registers(1);                   // reg 2
+        auto reg1_result = allocator.reserve_registers(1);  // reg 0
+        REQUIRE(is_success(reg1_result));
+        Register reg1 = get_value(reg1_result);
+
+        auto reg2_result = allocator.reserve_registers(1);  // reg 1
+        REQUIRE(is_success(reg2_result));
+        [[maybe_unused]] Register reg2 = get_value(reg2_result);
+
+        auto reg3_result = allocator.reserve_registers(1);  // reg 2
+        REQUIRE(is_success(reg3_result));
+        Register reg3 = get_value(reg3_result);
 
         REQUIRE(allocator.next_free() == 3);
 
