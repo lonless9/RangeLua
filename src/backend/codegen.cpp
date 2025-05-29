@@ -1072,9 +1072,173 @@ namespace rangelua::backend {
     void CodeGenerator::visit(const frontend::AssignmentStatement& node) {
         CODEGEN_LOG_DEBUG("Generating code for assignment statement");
 
-        // Generate code for all values first
+        const auto& targets = node.targets();
+        const auto& values = node.values();
+
+        // Special handling for multiple targets with single function call
+        if (targets.size() > 1 && values.size() == 1) {
+            // Check if the single value is a function call that might return multiple values
+            if (const auto* func_call =
+                    dynamic_cast<const frontend::FunctionCallExpression*>(values[0].get())) {
+                CODEGEN_LOG_DEBUG("Multi-target assignment with single function call");
+
+                // Generate the function call with multi-return context
+                multi_return_context_ = true;
+
+                // Generate code for the function expression
+                func_call->function().accept(*this);
+                if (!current_expression_.has_value()) {
+                    CODEGEN_LOG_ERROR("Function expression did not produce result");
+                    multi_return_context_ = false;
+                    return;
+                }
+                ExpressionDesc func_expr = current_expression_.value();
+
+                // Generate code for arguments
+                std::vector<ExpressionDesc> arg_expressions;
+                for (const auto& arg : func_call->arguments()) {
+                    arg->accept(*this);
+                    if (current_expression_.has_value()) {
+                        arg_expressions.push_back(current_expression_.value());
+                    }
+                }
+
+                // Reserve consecutive registers for the call
+                Size total_needed = 1 + arg_expressions.size();
+                Register call_base = register_allocator_.reserve_registers(total_needed);
+
+                // Move function to call position
+                expression_to_register(func_expr, call_base);
+
+                // Move arguments to call positions
+                for (Size i = 0; i < arg_expressions.size(); ++i) {
+                    expression_to_register(arg_expressions[i],
+                                           call_base + 1 + static_cast<Register>(i));
+                }
+
+                // Emit CALL instruction with expected number of return values
+                Size arg_count = arg_expressions.size();
+                Register return_count =
+                    static_cast<Register>(targets.size() + 1);  // +1 for Lua encoding
+
+                emitter_.emit_abc(
+                    OpCode::OP_CALL, call_base, static_cast<Register>(arg_count + 1), return_count);
+
+                multi_return_context_ = false;
+
+                // Assign results to targets
+                for (Size i = 0; i < targets.size(); ++i) {
+                    Register result_reg = call_base + static_cast<Register>(i);
+
+                    if (auto identifier =
+                            dynamic_cast<const frontend::IdentifierExpression*>(targets[i].get())) {
+                        // Simple variable assignment
+                        auto resolution = scope_manager_.resolve_variable(identifier->name());
+
+                        switch (resolution.type) {
+                            case ScopeManager::VariableResolution::Type::Local: {
+                                // Local variable assignment
+                                if (result_reg != resolution.index) {
+                                    emitter_.emit_abc(
+                                        OpCode::OP_MOVE, resolution.index, result_reg, 0);
+                                }
+                                break;
+                            }
+                            case ScopeManager::VariableResolution::Type::Upvalue: {
+                                // Upvalue assignment
+                                emitter_.emit_abc(
+                                    OpCode::OP_SETUPVAL, result_reg, resolution.index, 0);
+                                break;
+                            }
+                            case ScopeManager::VariableResolution::Type::Global: {
+                                // Global variable assignment using _ENV upvalue
+                                // SETTABUP: UpValue[A][K[B]] := R[C]
+                                Size const_index = emitter_.add_constant(identifier->name());
+                                CODEGEN_LOG_DEBUG("Emitting SETTABUP for global '{}': upvalue=0, "
+                                                  "key=K[{}], value=R[{}]",
+                                                  identifier->name(),
+                                                  const_index,
+                                                  result_reg);
+                                emitter_.emit_abc(
+                                    OpCode::OP_SETTABUP,
+                                    0,  // A: upvalue index (0 for _ENV)
+                                    static_cast<Register>(const_index),  // B: constant index for key
+                                    result_reg);                          // C: value register
+                                break;
+                            }
+                        }
+                    } else if (auto table_access =
+                                   dynamic_cast<const frontend::TableAccessExpression*>(
+                                       targets[i].get())) {
+                        // Table assignment - generate table and key
+                        table_access->table().accept(*this);
+                        if (!current_expression_.has_value()) {
+                            CODEGEN_LOG_ERROR("Table expression did not produce result");
+                            continue;
+                        }
+                        ExpressionDesc table_expr = current_expression_.value();
+
+                        table_access->key().accept(*this);
+                        if (!current_expression_.has_value()) {
+                            CODEGEN_LOG_ERROR("Key expression did not produce result");
+                            continue;
+                        }
+                        ExpressionDesc key_expr = current_expression_.value();
+
+                        // Convert table to register
+                        Register table_reg = expression_to_any_register(table_expr);
+                        Register value_reg = result_reg;
+
+                        // Emit appropriate SET instruction based on key type
+                        if (key_expr.kind == ExpressionKind::KINT) {
+                            // Use SETI for integer constants
+                            emitter_.emit_abc(OpCode::OP_SETI,
+                                              table_reg,
+                                              static_cast<Register>(key_expr.u.ival),
+                                              value_reg);
+                            free_expression(key_expr);
+                        } else if (key_expr.kind == ExpressionKind::K ||
+                                   key_expr.kind == ExpressionKind::KSTR) {
+                            // Use SETFIELD for string constants and floating-point constants
+                            emitter_.emit_abc(OpCode::OP_SETFIELD,
+                                              table_reg,
+                                              static_cast<Register>(key_expr.u.info),
+                                              value_reg);
+                            free_expression(key_expr);
+                        } else {
+                            // Use SETTABLE for register keys
+                            Register key_reg = expression_to_any_register(key_expr);
+                            emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, key_reg, value_reg);
+                            free_expression(key_expr);
+                        }
+
+                        // Free temporary registers
+                        free_expression(table_expr);
+                        free_expression(key_expr);
+                    }
+
+                // value_index++; // Not needed in this context
+                }
+
+                // Free the argument registers
+                for (Size i = 1; i < total_needed; ++i) {
+                    register_allocator_.free_register(call_base + static_cast<Register>(i),
+                                                      register_allocator_.local_count());
+                }
+
+                // Clean up expressions
+                free_expression(func_expr);
+                for (auto& arg_expr : arg_expressions) {
+                    free_expression(arg_expr);
+                }
+
+                return;
+            }
+        }
+
+        // Standard handling for other cases
         std::vector<ExpressionDesc> value_expressions;
-        for (const auto& value : node.values()) {
+        for (const auto& value : values) {
             value->accept(*this);
             if (current_expression_.has_value()) {
                 value_expressions.push_back(current_expression_.value());
@@ -1083,7 +1247,7 @@ namespace rangelua::backend {
 
         // Assign to targets
         Size value_index = 0;
-        for (const auto& target : node.targets()) {
+        for (const auto& target : targets) {
             if (value_index < value_expressions.size()) {
                 ExpressionDesc value_expr = value_expressions[value_index];
 

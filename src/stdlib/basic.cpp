@@ -205,37 +205,8 @@ namespace rangelua::stdlib::basic {
         const auto& value = args[0];
         std::string result;
 
-        // Check for __tostring metamethod first
-        if (value.is_table()) {
-            auto table_result = value.to_table();
-            if (std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_result)) {
-                auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
-                auto metatable = table->metatable();
-                if (metatable) {
-                    auto tostring_method = metatable->get(runtime::Value("__tostring"));
-                    if (tostring_method.is_function()) {
-                        // Call the __tostring metamethod
-                        auto func_result = tostring_method.to_function();
-                        if (std::holds_alternative<runtime::GCPtr<runtime::Function>>(
-                                func_result)) {
-                            auto func = std::get<runtime::GCPtr<runtime::Function>>(func_result);
-                            try {
-                                auto metamethod_result = func->call({value});
-                                if (!metamethod_result.empty() &&
-                                    metamethod_result[0].is_string()) {
-                                    auto str_result = metamethod_result[0].to_string();
-                                    if (std::holds_alternative<std::string>(str_result)) {
-                                        return {runtime::Value(std::get<std::string>(str_result))};
-                                    }
-                                }
-                            } catch (...) {
-                                // If metamethod fails, fall through to default behavior
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Note: __tostring metamethod handling should be implemented at the VM level
+        // For now, we use default tostring behavior for all values
 
         // Default tostring behavior
         if (value.is_nil()) {
