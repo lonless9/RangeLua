@@ -359,11 +359,16 @@ namespace rangelua::runtime {
             VM_LOG_DEBUG("SETLIST: R[{}][{}+i] := R[{}+i], 1 <= i <= {}", a, c, a, b);
         }
 
-        // Set list elements: R[A][C+i] := R[A+i] for i = 1 to n
-        for (Register i = 1; i <= n; ++i) {
-            Value key(static_cast<Number>(c + i));
+        // Set list elements following Lua 5.5 semantics
+        // The loop in Lua 5.5 is: for (; n > 0; n--) { val = s2v(ra + n); obj2arr(h, last - 1,
+        // val); last--; } This means: R[A][C+n-1] := R[A+n], R[A][C+n-2] := R[A+n-1], ..., R[A][C]
+        // := R[A+1]
+        Register last = c + n;
+        for (Register i = n; i > 0; --i) {
+            Value key(static_cast<Number>(last));  // Lua arrays are 1-indexed
             const Value& value = context.stack_at(a + i);
             table.set(key, value);
+            last--;
         }
 
         return std::monostate{};

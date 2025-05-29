@@ -92,6 +92,18 @@ namespace rangelua::runtime {
         return arrayPart_.size();
     }
 
+    Size Table::rawLength() const noexcept {
+        // Calculate Lua-style length: consecutive non-nil elements from index 1
+        Size length = 0;
+        for (Size i = 0; i < arrayPart_.size(); ++i) {
+            if (arrayPart_[i].is_nil()) {
+                break;  // Stop at first nil
+            }
+            length = i + 1;  // Convert to 1-based index
+        }
+        return length;
+    }
+
     Size Table::hashSize() const noexcept {
         return hashPart_.size();
     }
@@ -152,15 +164,21 @@ namespace rangelua::runtime {
         Number num = std::get<Number>(num_result);
         if (num <= 0 || num != std::floor(num)) return false;  // Must be positive integer
 
-        return static_cast<Size>(num) <= arrayPart_.size() + 1;  // Allow one past end for growth
+        // Allow any positive integer as array index - table will grow as needed
+        return true;
     }
 
     // Table::Iterator implementation
     Table::Iterator::Iterator(const Table& table, bool atEnd)
-        : table_(table), atEnd_(atEnd) {
+        : table_(table), arrayIndex_(0), inHashPart_(false), atEnd_(atEnd) {
         if (!atEnd_) {
-            // Start with array part
-            if (table_.arrayPart_.empty()) {
+            // Start with array part - find first non-nil element
+            while (arrayIndex_ < table_.arrayPart_.size() &&
+                   table_.arrayPart_[arrayIndex_].is_nil()) {
+                ++arrayIndex_;
+            }
+
+            if (arrayIndex_ >= table_.arrayPart_.size()) {
                 // Move to hash part
                 inHashPart_ = true;
                 hashIter_ = table_.hashPart_.begin();
@@ -189,8 +207,13 @@ namespace rangelua::runtime {
         if (atEnd_) return *this;
 
         if (!inHashPart_) {
-            // Array part
+            // Array part - find next non-nil element
             ++arrayIndex_;
+            while (arrayIndex_ < table_.arrayPart_.size() &&
+                   table_.arrayPart_[arrayIndex_].is_nil()) {
+                ++arrayIndex_;
+            }
+
             if (arrayIndex_ >= table_.arrayPart_.size()) {
                 // Move to hash part
                 inHashPart_ = true;

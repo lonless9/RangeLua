@@ -1495,18 +1495,23 @@ namespace rangelua::backend {
 
                         // Flush any pending list values first
                         if (!list_values.empty()) {
+                            // C parameter should be the starting index minus 1 (since SETLIST adds
+                            // 1)
+                            Register start_index =
+                                static_cast<Register>(list_index - list_values.size() - 1);
                             emitter_.emit_abc(OpCode::OP_SETLIST,
                                               table_reg,
                                               static_cast<Register>(list_values.size()),
-                                              static_cast<Register>(list_index - 1));
+                                              start_index);
 
                             // Free the list value registers
                             for (Register reg : list_values) {
                                 register_allocator_.free_register(
                                     reg, register_allocator_.local_count());
                             }
+                            Size values_count = list_values.size();
                             list_values.clear();
-                            list_index += list_values.size();
+                            list_index += values_count;
                         }
 
                         // Generate vararg expression - this will put values starting at next
@@ -1522,10 +1527,12 @@ namespace rangelua::backend {
                             expression_to_any_register(vararg_expr);
 
                         // Use SETLIST with B=0 to indicate "use all values up to stack top"
+                        // C parameter should be the starting index minus 1 (since SETLIST adds 1)
+                        Register start_index = static_cast<Register>(list_index - 1);
                         emitter_.emit_abc(OpCode::OP_SETLIST,
                                           table_reg,
                                           0,  // B=0 means use all values from register to stack top
-                                          static_cast<Register>(list_index - 1));
+                                          start_index);
 
                         CODEGEN_LOG_DEBUG("Emitted SETLIST for vararg with start_index={}",
                                           list_index - 1);
@@ -1542,7 +1549,8 @@ namespace rangelua::backend {
                         }
 
                         ExpressionDesc value_expr = current_expression_.value();
-                        Register value_reg = expression_to_any_register(value_expr);
+                        // Use expression_to_next_register to ensure consecutive allocation
+                        Register value_reg = expression_to_next_register(value_expr);
                         list_values.push_back(value_reg);
                         list_index++;
 
@@ -1555,22 +1563,30 @@ namespace rangelua::backend {
                                  frontend::TableConstructorExpression::Field::Type::List);
 
                         if (is_last_field || next_is_not_list || list_values.size() >= 50) {
-                            // Emit SETLIST for accumulated values
-                            emitter_.emit_abc(
-                                OpCode::OP_SETLIST,
-                                table_reg,
-                                static_cast<Register>(list_values.size()),
-                                static_cast<Register>(list_index - list_values.size()));
+                            // Values are already in consecutive registers due to expression_to_next_register
+                            // SETLIST expects: R[A] = table, R[A+1] = first value, R[A+2] = second value, etc.
+                            // We need to move the table to the position before the first value
+                            Register first_value_reg = list_values[0];
+                            Register table_position = first_value_reg - 1;
 
-                            CODEGEN_LOG_DEBUG("Emitted SETLIST for {} values starting at index {}",
-                                              list_values.size(),
-                                              list_index - list_values.size());
-
-                            // Free the list value registers
-                            for (Register reg : list_values) {
-                                register_allocator_.free_register(
-                                    reg, register_allocator_.local_count());
+                            if (table_reg != table_position) {
+                                emitter_.emit_abc(OpCode::OP_MOVE, table_position, table_reg, 0);
                             }
+
+                            Register start_index =
+                                static_cast<Register>(list_index - list_values.size() - 1);
+                            emitter_.emit_abc(OpCode::OP_SETLIST,
+                                              table_position,  // A = table position
+                                              static_cast<Register>(list_values.size()),
+                                              start_index);
+
+                            CODEGEN_LOG_DEBUG(
+                                "Emitted SETLIST for {} values starting at index {} (C={})",
+                                list_values.size(),
+                                list_index - list_values.size(),
+                                start_index);
+
+                            // Free the list value registers (they're already freed by expression_to_next_register)
                             list_values.clear();
                         }
                         break;

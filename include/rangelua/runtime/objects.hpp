@@ -46,6 +46,8 @@ namespace rangelua::runtime {
         void setArray(Size index, const Value& value);
         [[nodiscard]] Value getArray(Size index) const;
         [[nodiscard]] Size arraySize() const noexcept;
+        [[nodiscard]] Size
+        rawLength() const noexcept;  // Lua-style length (consecutive non-nil elements)
 
         // Hash operations
         [[nodiscard]] Size hashSize() const noexcept;
