@@ -42,7 +42,7 @@ VERBOSE=false
 ALL_DEBUG=false
 COMPARE=false
 TEST_FILE=""
-STANDARD_LUA_PATH="$HOME/code/cpp/lua/lua"
+STANDARD_LUA_PATH=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do

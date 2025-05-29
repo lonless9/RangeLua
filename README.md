@@ -1,4 +1,5 @@
 # RangeLua ⚡
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/lonless9/RangeLua)
 
 A Lua 5.5 JIT interpreter implementation in C++20.
 

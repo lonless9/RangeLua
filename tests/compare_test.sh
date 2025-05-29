@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-STANDARD_LUA_PATH="$HOME/code/cpp/lua/lua"
+STANDARD_LUA_PATH=""
 
 # Function to show usage
 show_usage() {
