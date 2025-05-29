@@ -1346,32 +1346,104 @@ namespace rangelua::backend {
 
         // Initialize fields
         Size list_index = 1;  // Lua arrays start at 1
-        for (const auto& field : fields) {
+        std::vector<Register> list_values;  // Collect consecutive list values for SETLIST
+
+        for (Size field_idx = 0; field_idx < fields.size(); ++field_idx) {
+            const auto& field = fields[field_idx];
+
             switch (field.type) {
                 case frontend::TableConstructorExpression::Field::Type::List: {
-                    // List field: table[list_index] = value
-                    field.value->accept(*this);
+                    // Check if this is a vararg expression and it's the last field
+                    bool is_vararg_last = (field_idx == fields.size() - 1) &&
+                                          (dynamic_cast<const frontend::VarargExpression*>(
+                                               field.value.get()) != nullptr);
 
-                    if (!current_expression_.has_value()) {
-                        CODEGEN_LOG_ERROR("Table field value did not produce expression");
-                        continue;
+                    if (is_vararg_last) {
+                        // Handle vararg as last field - use SETLIST with B=0 (multret)
+                        CODEGEN_LOG_DEBUG("Handling vararg as last table field");
+
+                        // Flush any pending list values first
+                        if (!list_values.empty()) {
+                            emitter_.emit_abc(OpCode::OP_SETLIST,
+                                              table_reg,
+                                              static_cast<Register>(list_values.size()),
+                                              static_cast<Register>(list_index - 1));
+
+                            // Free the list value registers
+                            for (Register reg : list_values) {
+                                register_allocator_.free_register(
+                                    reg, register_allocator_.local_count());
+                            }
+                            list_values.clear();
+                            list_index += list_values.size();
+                        }
+
+                        // Generate vararg expression - this will put values starting at next
+                        // register
+                        field.value->accept(*this);
+                        if (!current_expression_.has_value()) {
+                            CODEGEN_LOG_ERROR("Vararg expression did not produce result");
+                            continue;
+                        }
+
+                        ExpressionDesc vararg_expr = current_expression_.value();
+                        [[maybe_unused]] Register vararg_start_reg =
+                            expression_to_any_register(vararg_expr);
+
+                        // Use SETLIST with B=0 to indicate "use all values up to stack top"
+                        emitter_.emit_abc(OpCode::OP_SETLIST,
+                                          table_reg,
+                                          0,  // B=0 means use all values from register to stack top
+                                          static_cast<Register>(list_index - 1));
+
+                        CODEGEN_LOG_DEBUG("Emitted SETLIST for vararg with start_index={}",
+                                          list_index - 1);
+
+                        // Don't free vararg register here as SETLIST handles it
+                        break;
+                    } else {
+                        // Regular list field - collect for batch SETLIST
+                        field.value->accept(*this);
+
+                        if (!current_expression_.has_value()) {
+                            CODEGEN_LOG_ERROR("Table field value did not produce expression");
+                            continue;
+                        }
+
+                        ExpressionDesc value_expr = current_expression_.value();
+                        Register value_reg = expression_to_any_register(value_expr);
+                        list_values.push_back(value_reg);
+                        list_index++;
+
+                        // If we have accumulated enough values or this is the last list field,
+                        // emit SETLIST instruction
+                        bool is_last_field = (field_idx == fields.size() - 1);
+                        bool next_is_not_list =
+                            (field_idx + 1 < fields.size() &&
+                             fields[field_idx + 1].type !=
+                                 frontend::TableConstructorExpression::Field::Type::List);
+
+                        if (is_last_field || next_is_not_list || list_values.size() >= 50) {
+                            // Emit SETLIST for accumulated values
+                            emitter_.emit_abc(
+                                OpCode::OP_SETLIST,
+                                table_reg,
+                                static_cast<Register>(list_values.size()),
+                                static_cast<Register>(list_index - list_values.size()));
+
+                            CODEGEN_LOG_DEBUG("Emitted SETLIST for {} values starting at index {}",
+                                              list_values.size(),
+                                              list_index - list_values.size());
+
+                            // Free the list value registers
+                            for (Register reg : list_values) {
+                                register_allocator_.free_register(
+                                    reg, register_allocator_.local_count());
+                            }
+                            list_values.clear();
+                        }
+                        break;
                     }
-
-                    ExpressionDesc value_expr = current_expression_.value();
-                    Register value_reg = expression_to_any_register(value_expr);
-
-                    // Load the index into a register first
-                    Register index_reg = register_allocator_.reserve_registers(1);
-                    emitter_.emit_asbx(
-                        OpCode::OP_LOADI, index_reg, static_cast<std::int32_t>(list_index));
-                    emitter_.emit_abc(OpCode::OP_SETTABLE, table_reg, index_reg, value_reg);
-
-                    // Free temporary registers
-                    register_allocator_.free_register(index_reg, register_allocator_.local_count());
-                    free_expression(value_expr);
-
-                    list_index++;
-                    break;
                 }
                 case frontend::TableConstructorExpression::Field::Type::Array:
                 case frontend::TableConstructorExpression::Field::Type::Record: {

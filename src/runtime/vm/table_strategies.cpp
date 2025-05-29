@@ -7,6 +7,7 @@
 #include <rangelua/backend/bytecode.hpp>
 #include <rangelua/runtime/metamethod.hpp>
 #include <rangelua/runtime/value.hpp>
+#include <rangelua/runtime/vm.hpp>
 #include <rangelua/runtime/vm/table_strategies.hpp>
 #include <rangelua/utils/logger.hpp>
 
@@ -308,15 +309,58 @@ namespace rangelua::runtime {
 
         Value& table = context.stack_at(a);
 
-        VM_LOG_DEBUG("SETLIST: R[{}][{}+i] := R[{}+i], 1 <= i <= {}", a, c, a, b);
-
         if (!table.is_table()) {
             VM_LOG_ERROR("Attempt to set list elements on a {} value", table.type_name());
             return ErrorCode::TYPE_ERROR;
         }
 
-        // Set list elements: R[A][C+i] := R[A+i] for i = 1 to B
-        for (Register i = 1; i <= b; ++i) {
+        // Determine the number of elements to set
+        Register n = b;
+        if (b == 0) {
+            // B=0 means "use all values up to stack top" (like official Lua)
+            // This is used for varargs in table constructors
+            // Calculate how many values are available from A+1 to stack top
+            Size stack_size = context.stack_size();
+
+            // Get current call frame to determine the actual stack base
+            auto* vm = dynamic_cast<VirtualMachine*>(&context);
+            if (vm && vm->call_depth() > 0) {
+                const CallFrame* current_frame = vm->current_call_frame();
+                if (current_frame) {
+                    Size stack_base = current_frame->stack_base;
+                    Size absolute_a = stack_base + a;
+
+                    // Calculate elements from A+1 to stack top
+                    if (stack_size > absolute_a + 1) {
+                        n = static_cast<Register>(stack_size - (absolute_a + 1));
+                    } else {
+                        n = 0;
+                    }
+
+                    VM_LOG_DEBUG("SETLIST: R[{}][{}+i] := R[{}+i], B=0 (multret), calculated n={}, "
+                                 "stack_size={}, stack_base={}",
+                                 a,
+                                 c,
+                                 a,
+                                 n,
+                                 stack_size,
+                                 stack_base);
+                } else {
+                    n = 0;
+                    VM_LOG_DEBUG(
+                        "SETLIST: R[{}][{}+i] := R[{}+i], B=0 (multret), no call frame", a, c, a);
+                }
+            } else {
+                n = 0;
+                VM_LOG_DEBUG(
+                    "SETLIST: R[{}][{}+i] := R[{}+i], B=0 (multret), no VM context", a, c, a);
+            }
+        } else {
+            VM_LOG_DEBUG("SETLIST: R[{}][{}+i] := R[{}+i], 1 <= i <= {}", a, c, a, b);
+        }
+
+        // Set list elements: R[A][C+i] := R[A+i] for i = 1 to n
+        for (Register i = 1; i <= n; ++i) {
             Value key(static_cast<Number>(c + i));
             const Value& value = context.stack_at(a + i);
             table.set(key, value);
