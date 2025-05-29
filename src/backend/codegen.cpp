@@ -1010,8 +1010,45 @@ namespace rangelua::backend {
 
         // Generate code for arguments
         std::vector<ExpressionDesc> arg_expressions;
-        for (const auto& arg : node.arguments()) {
-            arg->accept(*this);
+        bool has_multret_arg = false;  // Track if last argument is a function call
+
+        for (Size i = 0; i < node.arguments().size(); ++i) {
+            const auto& arg = node.arguments()[i];
+
+            // Check if this is the last argument and it's a function call
+            bool is_last_arg = (i == node.arguments().size() - 1);
+            bool is_function_call =
+                dynamic_cast<const frontend::FunctionCallExpression*>(arg.get()) != nullptr;
+
+            if (is_last_arg && is_function_call) {
+                has_multret_arg = true;
+                CODEGEN_LOG_DEBUG("Last argument is a function call - enabling multret");
+
+                // Set a special context for the function call to return all values (C=0)
+                bool old_context = multi_return_context_;
+                multi_return_context_ = false;  // We'll handle this specially
+                arg->accept(*this);
+
+                // After the function call, modify its C parameter to 0 (return all values)
+                if (current_expression_.has_value()) {
+                    // The function call should have generated a CALL instruction
+                    // We need to modify the last emitted instruction to use C=0
+                    auto& last_instruction = emitter_.get_last_instruction();
+                    LuaInstruction lua_instr(last_instruction);
+                    if (lua_instr.opcode() == OpCode::OP_CALL) {
+                        // Modify C parameter to 0 (LUA_MULTRET) while keeping A and B
+                        last_instruction = LuaInstruction::create_abc(
+                                               OpCode::OP_CALL, lua_instr.A(), lua_instr.B(), 0)
+                                               .raw;
+                        CODEGEN_LOG_DEBUG("Modified last CALL instruction to use C=0 for multret");
+                    }
+                }
+
+                multi_return_context_ = old_context;  // Restore context
+            } else {
+                arg->accept(*this);
+            }
+
             if (current_expression_.has_value()) {
                 arg_expressions.push_back(current_expression_.value());
             }
@@ -1025,22 +1062,67 @@ namespace rangelua::backend {
         // Move function to call position
         expression_to_register(func_expr, call_base);
 
-        // Move arguments to call positions
-        for (Size i = 0; i < arg_expressions.size(); ++i) {
-            expression_to_register(arg_expressions[i], call_base + 1 + static_cast<Register>(i));
+        // Handle arguments - special case for multret
+        if (has_multret_arg) {
+            // When the last argument is a function call with multiple returns,
+            // we need to ensure the multret function call happens at the right position
+
+            // Move all arguments except the last one
+            for (Size i = 0; i < arg_expressions.size() - 1; ++i) {
+                expression_to_register(arg_expressions[i],
+                                       call_base + 1 + static_cast<Register>(i));
+            }
+
+            // For the last argument (multret function call), we need to regenerate
+            // the function call at the correct position
+            Size last_arg_index = arg_expressions.size() - 1;
+            Register target_reg = call_base + 1 + static_cast<Register>(last_arg_index);
+
+            // The last argument should be a function call expression
+            // We need to regenerate it to return values at the target position
+            CODEGEN_LOG_DEBUG("Regenerating multret function call at target position R{}",
+                              target_reg);
+
+            // For now, we'll use the existing approach but ensure the VM handles it correctly
+            // The key insight is that the VM should use the stack top to determine arguments
+            // when B=0 is used
+            ExpressionDesc& last_arg = arg_expressions[last_arg_index];
+            if (last_arg.kind == ExpressionKind::NONRELOC) {
+                // The function call result is at last_arg.u.info
+                // We don't move it - instead, we rely on the VM to handle variable arguments
+                // from the current stack state
+                CODEGEN_LOG_DEBUG("Multret function call result at R{}, will use stack-based args",
+                                  last_arg.u.info);
+            }
+        } else {
+            // Normal case - move all arguments
+            for (Size i = 0; i < arg_expressions.size(); ++i) {
+                expression_to_register(arg_expressions[i],
+                                       call_base + 1 + static_cast<Register>(i));
+            }
         }
 
         // Emit CALL instruction
         Size arg_count = arg_expressions.size();
+        Register b_param = 0;  // Number of arguments + 1
+        Register c_param = 0;  // Number of return values + 1
 
-        // Determine the number of return values based on context
-        Register return_count = 2;  // Default: 1 return value (2 = 1 + 1)
-        if (multi_return_context_) {
-            return_count = 4;  // 3 return values (4 = 3 + 1) for generic for loops
+        if (has_multret_arg) {
+            // When last argument is a function call, use B=0 to indicate variable arguments
+            b_param = 0;  // LUA_MULTRET for arguments
+            CODEGEN_LOG_DEBUG("Using B=0 (LUA_MULTRET) for variable arguments");
+        } else {
+            b_param = static_cast<Register>(arg_count + 1);
         }
 
-        emitter_.emit_abc(
-            OpCode::OP_CALL, call_base, static_cast<Register>(arg_count + 1), return_count);
+        // Determine the number of return values based on context
+        if (multi_return_context_) {
+            c_param = 4;  // 3 return values (4 = 3 + 1) for generic for loops
+        } else {
+            c_param = 2;  // Default: 1 return value (2 = 1 + 1)
+        }
+
+        emitter_.emit_abc(OpCode::OP_CALL, call_base, b_param, c_param);
 
         // Free the argument registers (but keep the function register for the result)
         for (Size i = 1; i < total_needed; ++i) {

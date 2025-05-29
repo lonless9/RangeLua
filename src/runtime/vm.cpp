@@ -987,6 +987,13 @@ namespace rangelua::runtime {
         return call_stack_.empty() ? nullptr : &call_stack_.back();
     }
 
+    void VirtualMachine::set_stack_top(Size new_top) noexcept {
+        if (new_top <= config_.stack_size) {
+            stack_top_ = new_top;
+            ensure_stack_size(new_top);
+        }
+    }
+
     // Legacy instruction implementations (deprecated - moved to strategy pattern)
 
     // Upvalue management

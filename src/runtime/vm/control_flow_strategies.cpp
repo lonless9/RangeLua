@@ -85,7 +85,19 @@ namespace rangelua::runtime {
 
         // Prepare arguments
         std::vector<Value> args;
-        Size arg_count = (b == 0) ? context.stack_size() - a - 1 : b - 1;
+        Size arg_count;
+
+        if (b == 0) {
+            // B=0 means variable arguments - use all values from stack top
+            Size stack_top = context.stack_size();
+            arg_count = (stack_top > a + 1) ? (stack_top - a - 1) : 0;
+            VM_LOG_DEBUG("B=0: using {} arguments from stack (stack_top={}, call_base={})",
+                         arg_count, stack_top, a);
+        } else {
+            // B-1 is the fixed number of arguments
+            arg_count = b - 1;
+            VM_LOG_DEBUG("B={}: using {} fixed arguments", b, arg_count);
+        }
 
         VM_LOG_DEBUG("Preparing {} arguments for function call", arg_count);
         for (Size i = 0; i < arg_count; ++i) {
@@ -101,8 +113,24 @@ namespace rangelua::runtime {
         }
 
         // Store results
-        Size result_count = (c == 0) ? results.size() : c - 1;
-        VM_LOG_DEBUG("Storing {} results from function call", result_count);
+        Size result_count;
+        if (c == 0) {
+            // C=0 means accept all return values (LUA_MULTRET)
+            result_count = results.size();
+            VM_LOG_DEBUG("C=0: accepting all {} return values", result_count);
+
+            // For C=0, we need to adjust the stack top to include all results
+            // This is important for subsequent instructions that might use these values
+            if (auto* vm = dynamic_cast<VirtualMachine*>(&context)) {
+                // Set stack top to after all results
+                vm->set_stack_top(a + result_count);
+                VM_LOG_DEBUG("Set stack top to {} (after {} results)", a + result_count, result_count);
+            }
+        } else {
+            // C-1 is the expected number of return values
+            result_count = c - 1;
+            VM_LOG_DEBUG("C={}: expecting {} return values, got {}", c, result_count, results.size());
+        }
 
         for (Size i = 0; i < result_count && i < results.size(); ++i) {
             context.stack_at(a + i) = std::move(results[i]);
@@ -193,6 +221,12 @@ namespace rangelua::runtime {
     Status Return1Strategy::execute_impl(IVMContext& context, Instruction instruction) {
         Register a = backend::InstructionEncoder::decode_a(instruction);
         VM_LOG_DEBUG("RETURN1: return R[{}]", a);
+
+        // Cast to VirtualMachine to access the new return_from_function method
+        if (auto* vm = dynamic_cast<VirtualMachine*>(&context)) {
+            return vm->return_from_function(a, 1);
+        }
+        // Fallback to old method
         return context.return_from_function(1);
     }
 

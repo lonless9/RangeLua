@@ -346,6 +346,11 @@ namespace rangelua::runtime {
          */
         [[nodiscard]] const CallFrame* current_call_frame() const noexcept;
 
+        /**
+         * @brief Set stack top position (for multi-return value handling)
+         */
+        void set_stack_top(Size new_top) noexcept;
+
     private:
         VMConfig config_;
         VMState state_ = VMState::Ready;

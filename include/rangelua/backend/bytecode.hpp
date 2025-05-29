@@ -374,6 +374,11 @@ namespace rangelua::backend {
         [[nodiscard]] Span<const Instruction> instructions() const noexcept;
 
         /**
+         * @brief Get last emitted instruction (for modification)
+         */
+        [[nodiscard]] Instruction& get_last_instruction();
+
+        /**
          * @brief Reset emitter state
          */
         void reset();

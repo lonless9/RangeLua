@@ -221,6 +221,13 @@ namespace rangelua::backend {
         return {function_.instructions};
     }
 
+    Instruction& BytecodeEmitter::get_last_instruction() {
+        if (function_.instructions.empty()) {
+            throw std::runtime_error("No instructions emitted yet");
+        }
+        return function_.instructions.back();
+    }
+
     void BytecodeEmitter::reset() {
         function_ = BytecodeFunction{};
         string_constant_map_.clear();
