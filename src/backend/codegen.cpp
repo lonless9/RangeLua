@@ -17,8 +17,9 @@ namespace rangelua::backend {
         Register safe_reserve_registers(RegisterAllocator& allocator, Size n) {
             auto result = allocator.reserve_registers(n);
             if (is_error(result)) {
-                CODEGEN_LOG_ERROR("Failed to allocate {} registers: {}", n,
-                                 error_code_to_string(get_error(result)));
+                CODEGEN_LOG_ERROR("Failed to allocate {} registers: {}",
+                                  n,
+                                  error_code_to_string(get_error(result)));
                 // Return a fallback register (this should be handled better in production)
                 return 0;
             }
@@ -97,7 +98,8 @@ namespace rangelua::backend {
 
         Register new_stack = free_reg_ + static_cast<Register>(needed);
         if (new_stack > max_registers_) {
-            CODEGEN_LOG_ERROR("Register stack overflow: need {}, max {}", new_stack, max_registers_);
+            CODEGEN_LOG_ERROR(
+                "Register stack overflow: need {}, max {}", new_stack, max_registers_);
             return make_error<std::monostate>(ErrorCode::STACK_OVERFLOW);
         }
 
@@ -412,18 +414,21 @@ namespace rangelua::backend {
             case ExpressionKind::KINT:
                 // Try to fit in sBx field first
                 if (expr.u.ival >= -32768 && expr.u.ival <= 32767) {
-                    emitter_.emit_asbx(OpCode::OP_LOADI, reg, static_cast<std::int32_t>(expr.u.ival));
+                    emitter_.emit_asbx(
+                        OpCode::OP_LOADI, reg, static_cast<std::int32_t>(expr.u.ival));
                 } else {
                     // Use constant pool
                     Size const_index = emitter_.add_constant(expr.u.ival);
-                    emitter_.emit_abx(OpCode::OP_LOADK, reg, static_cast<std::uint32_t>(const_index));
+                    emitter_.emit_abx(
+                        OpCode::OP_LOADK, reg, static_cast<std::uint32_t>(const_index));
                 }
                 break;
             case ExpressionKind::KFLT:
                 // Use constant pool for floating point numbers
                 {
                     Size const_index = emitter_.add_constant(expr.u.nval);
-                    emitter_.emit_abx(OpCode::OP_LOADK, reg, static_cast<std::uint32_t>(const_index));
+                    emitter_.emit_abx(
+                        OpCode::OP_LOADK, reg, static_cast<std::uint32_t>(const_index));
                 }
                 break;
             case ExpressionKind::K:
@@ -431,13 +436,13 @@ namespace rangelua::backend {
                 break;
             case ExpressionKind::RELOC: {
                 // Patch the instruction to use the specified register
-                emitter_.patch_instruction(expr.u.info,
+                emitter_.patch_instruction(
+                    expr.u.info,
                     InstructionEncoder::encode_abc(
                         InstructionEncoder::decode_opcode(emitter_.instructions()[expr.u.info]),
                         reg,
                         InstructionEncoder::decode_b(emitter_.instructions()[expr.u.info]),
-                        InstructionEncoder::decode_c(emitter_.instructions()[expr.u.info])
-                    ));
+                        InstructionEncoder::decode_c(emitter_.instructions()[expr.u.info])));
                 break;
             }
             case ExpressionKind::NONRELOC:
@@ -516,8 +521,10 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::free_expressions(ExpressionDesc& e1, ExpressionDesc& e2) {
-        Register r1 = (e1.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e1.u.info) : 255;
-        Register r2 = (e2.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e2.u.info) : 255;
+        Register r1 =
+            (e1.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e1.u.info) : 255;
+        Register r2 =
+            (e2.kind == ExpressionKind::NONRELOC) ? static_cast<Register>(e2.u.info) : 255;
         if (r1 != 255 || r2 != 255) {
             register_allocator_.free_registers(r1, r2, register_allocator_.nvarstack());
         }
@@ -1418,7 +1425,7 @@ namespace rangelua::backend {
                 dynamic_cast<const frontend::FunctionCallExpression*>(arg.get()) != nullptr;
             bool is_vararg = dynamic_cast<const frontend::VarargExpression*>(arg.get()) != nullptr;
 
-            if (is_last_arg && (is_function_call || is_vararg)) {
+            if (is_last_arg && (is_function_call || is_vararg) && multi_return_context_) {
                 has_multret_arg = true;
                 multret_arg_node = arg.get();
                 CODEGEN_LOG_DEBUG("Last argument is a multret expression - deferring generation");
@@ -1640,11 +1647,11 @@ namespace rangelua::backend {
                                                   identifier->name(),
                                                   const_index,
                                                   result_reg);
-                                emitter_.emit_abc(
-                                    OpCode::OP_SETTABUP,
-                                    0,  // A: upvalue index (0 for _ENV)
-                                    static_cast<Register>(const_index),  // B: constant index for key
-                                    result_reg);                          // C: value register
+                                emitter_.emit_abc(OpCode::OP_SETTABUP,
+                                                  0,  // A: upvalue index (0 for _ENV)
+                                                  static_cast<Register>(
+                                                      const_index),  // B: constant index for key
+                                                  result_reg);       // C: value register
                                 break;
                             }
                         }
@@ -1698,7 +1705,7 @@ namespace rangelua::backend {
                         free_expression(key_expr);
                     }
 
-                // value_index++; // Not needed in this context
+                    // value_index++; // Not needed in this context
                 }
 
                 // Free the argument registers
@@ -2007,7 +2014,8 @@ namespace rangelua::backend {
 
         // Get the method from the object
         Size method_const_index = emitter_.add_constant(node.method_name());
-        emitter_.emit_abc(OpCode::OP_GETTABLE, call_base, object_reg, static_cast<Register>(method_const_index));
+        emitter_.emit_abc(
+            OpCode::OP_GETTABLE, call_base, object_reg, static_cast<Register>(method_const_index));
 
         // Move object to first argument position
         emitter_.emit_abc(OpCode::OP_MOVE, call_base + 1, object_reg, 0);
@@ -2122,7 +2130,7 @@ namespace rangelua::backend {
                           static_cast<Register>(std::min(hash_size, 255UL)));
 
         // Initialize fields
-        Size list_index = 1;  // Lua arrays start at 1
+        Size list_index = 1;                // Lua arrays start at 1
         std::vector<Register> list_values;  // Collect consecutive list values for SETLIST
 
         for (Size field_idx = 0; field_idx < fields.size(); ++field_idx) {
@@ -2209,9 +2217,10 @@ namespace rangelua::backend {
                                  frontend::TableConstructorExpression::Field::Type::List);
 
                         if (is_last_field || next_is_not_list || list_values.size() >= 50) {
-                            // Values are already in consecutive registers due to expression_to_next_register
-                            // SETLIST expects: R[A] = table, R[A+1] = first value, R[A+2] = second value, etc.
-                            // We need to move the table to the position before the first value
+                            // Values are already in consecutive registers due to
+                            // expression_to_next_register SETLIST expects: R[A] = table, R[A+1] =
+                            // first value, R[A+2] = second value, etc. We need to move the table to
+                            // the position before the first value
                             Register first_value_reg = list_values[0];
                             Register table_position = first_value_reg - 1;
 
@@ -2232,7 +2241,8 @@ namespace rangelua::backend {
                                 list_index - list_values.size(),
                                 start_index);
 
-                            // Free the list value registers (they're already freed by expression_to_next_register)
+                            // Free the list value registers (they're already freed by
+                            // expression_to_next_register)
                             list_values.clear();
                         }
                         break;
@@ -2760,7 +2770,8 @@ namespace rangelua::backend {
         // Handle assignment based on whether it's local or global
         if (node.is_local()) {
             // Local function declaration: local function name(...) ... end
-            if (const auto* identifier = dynamic_cast<const frontend::IdentifierExpression*>(&node.name())) {
+            if (const auto* identifier =
+                    dynamic_cast<const frontend::IdentifierExpression*>(&node.name())) {
                 // Allocate register for the local function
                 auto local_reg_result = register_allocator_.allocate();
                 if (is_success(local_reg_result)) {
@@ -2778,7 +2789,8 @@ namespace rangelua::backend {
             }
         } else {
             // Global function declaration: function name(...) ... end
-            if (const auto* identifier = dynamic_cast<const frontend::IdentifierExpression*>(&node.name())) {
+            if (const auto* identifier =
+                    dynamic_cast<const frontend::IdentifierExpression*>(&node.name())) {
                 // Global function assignment using SETTABUP: UpValue[A][K[B]] := R[C]
                 Size const_index = emitter_.add_constant(identifier->name());
                 CODEGEN_LOG_DEBUG("Emitting SETTABUP for global function '{}': upvalue=0, "
@@ -2980,7 +2992,8 @@ namespace rangelua::backend {
         // base + 4: first loop variable
         // base + 5: second loop variable (if any)
         // etc.
-        Size total_registers_needed = 4 + node.variables().size();  // base + state + control + reserved + variables
+        Size total_registers_needed =
+            4 + node.variables().size();  // base + state + control + reserved + variables
         Register base_reg = safe_reserve_registers(register_allocator_, total_registers_needed);
         Register state_reg = base_reg + 1;
         Register control_reg = base_reg + 2;
@@ -3044,15 +3057,18 @@ namespace rangelua::backend {
         // Emit TFORLOOP instruction
         // TFORLOOP: if R[A+4] ~= nil then { R[A+2] := R[A+4]; pc -= Bx }
         Size tforloop_pc = jump_manager_.current_instruction();
-        std::int32_t loop_offset = static_cast<std::int32_t>(loop_start) - static_cast<std::int32_t>(tforloop_pc) - 1;
+        std::int32_t loop_offset =
+            static_cast<std::int32_t>(loop_start) - static_cast<std::int32_t>(tforloop_pc) - 1;
         emitter_.emit_abx(OpCode::OP_TFORLOOP, base_reg, static_cast<Size>(-loop_offset));
 
         // Patch the TFORPREP instruction to jump to after the loop
         Size after_loop = jump_manager_.current_instruction();
-        std::int32_t prep_offset = static_cast<std::int32_t>(after_loop) - static_cast<std::int32_t>(tforprep_pc) - 1;
-        emitter_.patch_instruction(
-            tforprep_pc,
-            InstructionEncoder::encode_abx(OpCode::OP_TFORPREP, base_reg, static_cast<Size>(prep_offset)));
+        std::int32_t prep_offset =
+            static_cast<std::int32_t>(after_loop) - static_cast<std::int32_t>(tforprep_pc) - 1;
+        emitter_.patch_instruction(tforprep_pc,
+                                   InstructionEncoder::encode_abx(OpCode::OP_TFORPREP,
+                                                                  base_reg,
+                                                                  static_cast<Size>(prep_offset)));
 
         // Exit loop context and patch break/continue jumps
         exit_loop();
@@ -3255,8 +3271,6 @@ namespace rangelua::backend {
         return emitter_.add_constant(constant_value);
     }
 
-
-
     // Loop context management implementation
     void CodeGenerator::enter_loop(Size loop_start) {
         LoopContext context;
@@ -3367,8 +3381,6 @@ namespace rangelua::backend {
         pending_gotos_.emplace_back(label, jump_index);
         CODEGEN_LOG_DEBUG("Emitted forward goto to label '{}' at jump {}", label, jump_index);
     }
-
-
 
     // CodeGenContext implementation
     CodeGenContext::CodeGenContext(CodeGenerator& generator) : generator_(generator) {}
