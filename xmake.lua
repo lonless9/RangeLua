@@ -7,6 +7,8 @@ set_toolchains("clang")
 -- Add build modes
 add_rules("mode.debug", "mode.release")
 
+add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode", lsp = "clangd"})
+
 -- C++20 specific flags
 add_cxxflags("-std=c++20", "-fcoroutines")
 
@@ -34,6 +36,7 @@ set_targetdir("build/$(plat)_$(arch)_$(mode)")
 
 -- Package dependencies
 add_requires("spdlog")
+add_requires("catch2", {version = "3.x"})
 
 -- Core library target
 target("rangelua_core")
@@ -63,3 +66,14 @@ target("rangelua")
     set_rundir("$(projectdir)")
     add_deps("rangelua_core")
     add_files("src/main.cpp")
+
+-- Test runner target
+target("tests")
+    set_kind("binary")
+    add_packages("spdlog", "catch2")
+    set_rundir("$(projectdir)") -- So it can find the tests/scripts directory
+    add_deps("rangelua_core")
+    add_files("tests/main.cpp", "tests/integration_tests.cpp")
+    if is_plat("linux", "macosx") then
+        add_syslinks("pthread", "dl")
+    end

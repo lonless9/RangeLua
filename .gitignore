@@ -1,0 +1,14 @@
+# Build artifacts
+/build
+/.vscode
+/compile_commands.json
+
+# Dependencies
+/packages
+/xmake.lua.cache
+
+# Other
+.DS_Store
+.
+.xmake
+.cache
