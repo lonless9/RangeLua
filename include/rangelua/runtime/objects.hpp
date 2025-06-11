@@ -79,7 +79,7 @@ namespace rangelua::runtime {
         [[nodiscard]] Iterator end() const { return Iterator(*this, true); }
 
         // GCObject interface
-        void traverse(std::function<void(GCObject*)> visitor) override;
+        void traverse(AdvancedGarbageCollector& gc) override;
         [[nodiscard]] Size objectSize() const noexcept override;
 
     private:
@@ -155,7 +155,7 @@ namespace rangelua::runtime {
         Upvalue** previous = nullptr;
 
         // GCObject interface
-        void traverse(std::function<void(GCObject*)> visitor) override;
+        void traverse(AdvancedGarbageCollector& gc) override;
         [[nodiscard]] Size objectSize() const noexcept override;
 
     private:
@@ -227,7 +227,7 @@ namespace rangelua::runtime {
         [[nodiscard]] std::vector<Value> call(const std::vector<Value>& args) const;
 
         // GCObject interface
-        void traverse(std::function<void(GCObject*)> visitor) override;
+        void traverse(AdvancedGarbageCollector& gc) override;
         [[nodiscard]] Size objectSize() const noexcept override;
 
     private:
@@ -285,7 +285,7 @@ namespace rangelua::runtime {
         [[nodiscard]] Size userValueCount() const noexcept;
 
         // GCObject interface
-        void traverse(std::function<void(GCObject*)> visitor) override;
+        void traverse(AdvancedGarbageCollector& gc) override;
         [[nodiscard]] Size objectSize() const noexcept override;
 
     private:
@@ -338,7 +338,7 @@ namespace rangelua::runtime {
         [[nodiscard]] bool hasError() const noexcept;
 
         // GCObject interface
-        void traverse(std::function<void(GCObject*)> visitor) override;
+        void traverse(AdvancedGarbageCollector& gc) override;
         [[nodiscard]] Size objectSize() const noexcept override;
 
     private:

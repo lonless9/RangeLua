@@ -851,6 +851,9 @@ namespace rangelua::runtime {
         }
 
         // Fallback to default representation
+        if (value.is_table()) {
+            return String("table");
+        }
         return value.debug_string();
     }
 

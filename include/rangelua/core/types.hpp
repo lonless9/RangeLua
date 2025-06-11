@@ -24,6 +24,13 @@ namespace rangelua {
     using UInt = std::uint64_t;
     using Size = std::size_t;
     using Byte = std::uint8_t;
+    using lu_byte = Byte;
+
+    // Bitwise operation macros
+#define bitmask(b) (1 << (b))
+#define l_setbit(x, b) ((x) |= bitmask(b))
+#define testbit(x, b) ((x) & bitmask(b))
+#define resetbit(x, b) ((x) &= ~bitmask(b))
 
     // Floating point types
     using Number = double;
@@ -191,16 +198,7 @@ namespace rangelua {
     };
 
     // Enhanced GC object header with modern C++20 patterns
-    struct GCHeader {
-        struct GCObject* next = nullptr;
-        LuaType type;
-        std::uint8_t marked = 0;
-
-        explicit constexpr GCHeader(LuaType t) noexcept : type(t) {}
-
-        // Modern C++20 comparison operators
-        constexpr auto operator<=>(const GCHeader&) const noexcept = default;
-    };
+    struct GCHeader;
 
     // Enhanced tagged value system with C++20 features
     template <typename T>

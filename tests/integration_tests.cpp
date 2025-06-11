@@ -22,7 +22,6 @@ namespace {
     // Path to the official Lua executable from the git submodule.
     // First try the submodule version, then fall back to system Lua.
     constexpr const char* SUBMODULE_LUA_PATH = "third_party/lua/lua";
-    constexpr const char* SYSTEM_LUA_PATH = "lua";
 
     // Helper function to find all Lua test files recursively in a directory.
     std::vector<std::string> find_lua_test_files(const std::string& directory) {
@@ -77,16 +76,6 @@ namespace {
         return result;
     }
 
-    // Helper function to get the best available Lua interpreter path
-    std::string get_lua_interpreter_path() {
-        // First, check if the submodule Lua executable exists
-        if (fs::exists(SUBMODULE_LUA_PATH)) {
-            return SUBMODULE_LUA_PATH;
-        }
-        // Fall back to system Lua
-        return SYSTEM_LUA_PATH;
-    }
-
     // Helper function to execute a command and capture its stdout.
     // Note: Using popen() is intentional for testing purposes to execute external Lua interpreter
     std::string execute_command(const std::string& command) {
@@ -95,7 +84,7 @@ namespace {
         // NOLINTNEXTLINE(cert-env33-c) - popen is intentional for testing external Lua
         std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
         if (!pipe) {
-            throw std::runtime_error("popen() failed!");
+            throw std::runtime_error("popen() failed for command: " + command);
         }
         while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
             result += buffer.data();
@@ -119,7 +108,7 @@ namespace {
 
         // Replace table/function addresses in Lua output (e.g., "table: 0x...")
         std::regex table_addr_pattern(R"((table|function|thread|userdata):\s*0x[0-9a-fA-F]+)");
-        normalized = std::regex_replace(normalized, table_addr_pattern, "$1: 0xMEMORY_ADDR");
+        normalized = std::regex_replace(normalized, table_addr_pattern, "$1");
 
         return normalized;
     }
@@ -176,8 +165,7 @@ TEST_CASE("Lua Script Integration Tests", "[integration]") {
         std::string official_lua_output;
         bool official_lua_ran = false;
         try {
-            std::string lua_path = get_lua_interpreter_path();
-            std::string command = lua_path + " " + file_path;
+            std::string command = std::string("./") + SUBMODULE_LUA_PATH + " " + file_path;
             official_lua_output = execute_command(command);
             official_lua_ran = true;
         } catch (const std::exception& e) {

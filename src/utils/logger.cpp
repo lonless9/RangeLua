@@ -174,32 +174,47 @@ namespace rangelua::utils {
         std::string lower_level = level;
         std::ranges::transform(lower_level, lower_level.begin(), ::tolower);
 
-        if (lower_level == "trace") return LogLevel::trace;
-        if (lower_level == "debug") return LogLevel::debug;
-        if (lower_level == "info") return LogLevel::info;
-        if (lower_level == "warn" || lower_level == "warning") return LogLevel::warn;
-        if (lower_level == "error" || lower_level == "err") return LogLevel::err;
-        if (lower_level == "critical" || lower_level == "crit") return LogLevel::critical;
-        if (lower_level == "off" || lower_level == "none") return LogLevel::off;
+        if (lower_level == "trace")
+            return LogLevel::trace;
+        if (lower_level == "debug")
+            return LogLevel::debug;
+        if (lower_level == "info")
+            return LogLevel::info;
+        if (lower_level == "warn" || lower_level == "warning")
+            return LogLevel::warn;
+        if (lower_level == "error" || lower_level == "err")
+            return LogLevel::err;
+        if (lower_level == "critical" || lower_level == "crit")
+            return LogLevel::critical;
+        if (lower_level == "off" || lower_level == "none")
+            return LogLevel::off;
 
-        return LogLevel::info; // Default fallback
+        return LogLevel::info;  // Default fallback
     }
 
     std::string Logger::log_level_to_string(LogLevel level) {
         switch (level) {
-            case LogLevel::trace: return "trace";
-            case LogLevel::debug: return "debug";
-            case LogLevel::info: return "info";
-            case LogLevel::warn: return "warn";
-            case LogLevel::err: return "error";
-            case LogLevel::critical: return "critical";
-            case LogLevel::off: return "off";
-            default: return "info";
+            case LogLevel::trace:
+                return "trace";
+            case LogLevel::debug:
+                return "debug";
+            case LogLevel::info:
+                return "info";
+            case LogLevel::warn:
+                return "warn";
+            case LogLevel::err:
+                return "error";
+            case LogLevel::critical:
+                return "critical";
+            case LogLevel::off:
+                return "off";
+            default:
+                return "info";
         }
     }
 
     std::vector<std::string> Logger::get_available_modules() {
-        return {"lexer", "parser", "codegen", "optimizer", "vm", "memory", "gc"};
+        return {"lexer", "parser", "codegen", "optimizer", "vm", "memory", "gc", "api"};
     }
 
     void Logger::enable_all_modules(LogLevel level) {

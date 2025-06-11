@@ -1,7 +1,7 @@
 /**
  * @file state.cpp
  * @brief Enhanced State implementation with comprehensive API support
- * @version 0.1.0
+ * @version 0.2.0
  */
 
 #include <rangelua/api/state.hpp>
@@ -10,9 +10,10 @@
 #include <rangelua/core/error.hpp>
 #include <rangelua/frontend/lexer.hpp>
 #include <rangelua/frontend/parser.hpp>
+#include <rangelua/runtime/gc.hpp>
 #include <rangelua/stdlib/basic.hpp>
-#include <rangelua/stdlib/string.hpp>
 #include <rangelua/stdlib/math.hpp>
+#include <rangelua/stdlib/string.hpp>
 #include <rangelua/stdlib/table.hpp>
 #include <rangelua/utils/logger.hpp>
 
@@ -51,6 +52,7 @@ namespace rangelua::api {
         cleanup();
 
         // Force cleanup of thread-local GC to prevent memory leaks
+        // This is crucial to run finalizers for any remaining objects.
         runtime::cleanupThreadLocalGC();
 
         logger()->debug("State destruction complete");
@@ -282,18 +284,6 @@ namespace rangelua::api {
         // Step 3: Reset VM state to clean up environment and registry
         logger()->debug("Resetting VM state");
         vm_.reset();
-
-        // Step 4: Force garbage collection to clean up remaining objects
-        logger()->debug("Triggering garbage collection");
-        auto gc_result = runtime::getGarbageCollector();
-        if (is_success(gc_result)) {
-            auto* gc = get_value(gc_result);
-            // Cast to AdvancedGarbageCollector to access emergencyCollection
-            if (auto* advanced_gc = dynamic_cast<runtime::AdvancedGarbageCollector*>(gc)) {
-                advanced_gc->emergencyCollection();
-                logger()->debug("Emergency garbage collection completed");
-            }
-        }
 
         logger()->debug("State cleanup completed");
     }

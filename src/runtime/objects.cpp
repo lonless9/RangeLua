@@ -120,27 +120,27 @@ namespace rangelua::runtime {
         return metatable_;
     }
 
-    void Table::traverse(std::function<void(GCObject*)> visitor) {
+    void Table::traverse(AdvancedGarbageCollector& gc) {
         // Traverse array part
         for (const auto& value : arrayPart_) {
             if (value.is_gc_object()) {
-                visitor(value.as_gc_object());
+                gc.markObject(value.as_gc_object());
             }
         }
 
         // Traverse hash part
         for (const auto& [key, value] : hashPart_) {
             if (key.is_gc_object()) {
-                visitor(key.as_gc_object());
+                gc.markObject(key.as_gc_object());
             }
             if (value.is_gc_object()) {
-                visitor(value.as_gc_object());
+                gc.markObject(value.as_gc_object());
             }
         }
 
         // Traverse metatable
         if (metatable_) {
-            visitor(metatable_.get());
+            gc.markObject(metatable_.get());
         }
     }
 
@@ -315,11 +315,12 @@ namespace rangelua::runtime {
         }
     }
 
-    void Upvalue::traverse(std::function<void(GCObject*)> visitor) {
+    void Upvalue::traverse(AdvancedGarbageCollector& gc) {
         // Visit the value if it's closed and contains GC objects
         if (!isOpen_) {
-            // The Value class should handle its own traversal
-            // This is a placeholder for when Value supports GC traversal
+            if (closedValue_.is_gc_object()) {
+                gc.markObject(closedValue_.as_gc_object());
+            }
         }
     }
 
@@ -459,17 +460,20 @@ namespace rangelua::runtime {
         throw std::runtime_error("Lua function calls must be executed through the VM");
     }
 
-    void Function::traverse(std::function<void(GCObject*)> visitor) {
+    void Function::traverse(AdvancedGarbageCollector& gc) {
         // Traverse upvalues
         for (const auto& upvalue : upvalues_) {
             if (upvalue) {
-                visitor(upvalue.get());
+                gc.markObject(upvalue.get());
             }
         }
 
         // Traverse constants if they contain GC objects
-        // This would need to be implemented when Value supports GC traversal
-        // For now, constants are assumed to be primitive values
+        for (const auto& constant : constants_) {
+            if (constant.is_gc_object()) {
+                gc.markObject(constant.as_gc_object());
+            }
+        }
     }
 
     Size Function::objectSize() const noexcept {
@@ -527,16 +531,16 @@ namespace rangelua::runtime {
         return userValues_.size();
     }
 
-    void Userdata::traverse(std::function<void(GCObject*)> visitor) {
+    void Userdata::traverse(AdvancedGarbageCollector& gc) {
         // Traverse metatable
         if (metatable_) {
-            visitor(metatable_.get());
+            gc.markObject(metatable_.get());
         }
 
         // Traverse user values
         for (const auto& userValue : userValues_) {
             if (userValue.is_gc_object()) {
-                visitor(userValue.as_gc_object());
+                gc.markObject(userValue.as_gc_object());
             }
         }
     }
@@ -649,24 +653,24 @@ namespace rangelua::runtime {
         return !error_.empty();
     }
 
-    void Coroutine::traverse(std::function<void(GCObject*)> visitor) {
+    void Coroutine::traverse(AdvancedGarbageCollector& gc) {
         // Traverse stack
         for (const auto& value : stack_) {
             if (value.is_gc_object()) {
-                visitor(value.as_gc_object());
+                gc.markObject(value.as_gc_object());
             }
         }
 
         // Traverse yielded values
         for (const auto& value : yieldedValues_) {
             if (value.is_gc_object()) {
-                visitor(value.as_gc_object());
+                gc.markObject(value.as_gc_object());
             }
         }
 
         // Traverse current function
         if (currentFunction_) {
-            visitor(currentFunction_.get());
+            gc.markObject(currentFunction_.get());
         }
     }
 

@@ -282,51 +282,7 @@ namespace rangelua::runtime {
         virtual void do_deallocateAligned(void* ptr, Size size, Size alignment) = 0;
     };
 
-    /**
-     * @brief Enhanced garbage collector interface
-     *
-     * Supports multiple GC strategies and provides comprehensive
-     * monitoring and control capabilities.
-     */
-    class GarbageCollector {
-    public:
-        virtual ~GarbageCollector() = default;
-
-        // Non-copyable, non-movable by default
-        GarbageCollector(const GarbageCollector&) = delete;
-        GarbageCollector& operator=(const GarbageCollector&) = delete;
-        GarbageCollector(GarbageCollector&&) = delete;
-        GarbageCollector& operator=(GarbageCollector&&) = delete;
-
-    public:
-        // Root management (public for GCRoot RAII class)
-        virtual void add_root(void* ptr) = 0;
-        virtual void remove_root(void* ptr) = 0;
-        virtual void add_root(GCObject* obj) = 0;
-        virtual void remove_root(GCObject* obj) = 0;
-
-    protected:
-        GarbageCollector() = default;
-
-        // Core GC interface
-        virtual void collect() = 0;
-        virtual void mark_phase() = 0;
-        virtual void sweep_phase() = 0;
-
-        // Advanced features
-        virtual void setMemoryManager(RuntimeMemoryManager* manager) noexcept = 0;
-        virtual void requestCollection() noexcept = 0;
-        virtual void emergencyCollection() = 0;
-
-        // Configuration
-        virtual void setCollectionThreshold(Size threshold) noexcept = 0;
-        virtual void setCollectionInterval(std::chrono::milliseconds interval) noexcept = 0;
-
-        // Monitoring
-        [[nodiscard]] virtual bool isCollecting() const noexcept = 0;
-        [[nodiscard]] virtual Size objectCount() const noexcept = 0;
-        [[nodiscard]] virtual Size memoryUsage() const noexcept = 0;
-    };
+    class GarbageCollector;
 
     /**
      * @brief Default runtime memory manager implementation

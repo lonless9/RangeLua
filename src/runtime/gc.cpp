@@ -1,473 +1,272 @@
 /**
  * @file gc.cpp
- * @brief Modern C++20 garbage collection system implementation for RangeLua with error handling and
- * debug integration
- * @version 0.1.0
+ * @brief Modern C++20 Tracing Garbage Collector implementation for RangeLua
+ * @version 0.2.0
  */
 
-#include <rangelua/core/error.hpp>
 #include <rangelua/runtime/gc.hpp>
+#include <rangelua/runtime/metamethod.hpp>
+#include <rangelua/runtime/value.hpp>
+#include <rangelua/runtime/objects.hpp>
+#include <rangelua/runtime/vm.hpp> // For root scanning
 #include <rangelua/utils/debug.hpp>
 #include <rangelua/utils/logger.hpp>
 
 #include <algorithm>
-#include <chrono>
-#include <queue>
-#include <unordered_set>
 
 namespace rangelua::runtime {
 
-    // GCObject implementation
-    void GCObject::scheduleForDeletion() {
-        // RANGELUA_DEBUG_PRINT("GCObject::scheduleForDeletion - object type: " +
-        //                      std::to_string(static_cast<int>(type())) +
-        //                      ", ref count: " + std::to_string(refCount()));
+#define isWhite(o)      ((o)->getMarked() & (bitmask(0) | bitmask(1)))
+#define isBlack(o)      testbit((o)->getMarked(), 2)
+#define isGray(o)       (!isWhite(o) && !isBlack(o))
 
-        // In a real implementation, this would add the object to a deletion queue
-        // For now, we'll delete immediately to prevent memory leaks
-        GC_LOG_DEBUG("GCObject scheduled for deletion: type={}", static_cast<int>(type()));
+#define otherwhite(g)   ((g)->currentWhite_ ^ (bitmask(0) | bitmask(1)))
+#define isdead(g, o)    ((o)->getMarked() & otherwhite(g) & (bitmask(0) | bitmask(1)))
 
-        try {
-            // Try to remove from thread-local GC if available
-            auto gc_result = getGarbageCollector();
-            if (is_success(gc_result)) {
-                auto* gc = get_value(gc_result);
-                gc->remove_root(this);
-                // RANGELUA_DEBUG_PRINT("Successfully removed object from GC roots");
-            } else {
-                ErrorCode error = get_error(gc_result);
-                log_error(error, "Failed to get garbage collector during object deletion");
-            }
-        } catch (const std::exception& e) {
-            log_error(ErrorCode::RUNTIME_ERROR, "Exception during GC cleanup: " + String(e.what()));
+#define makewhite(g, o) ((o)->setMarked(((o)->getMarked() & ~((bitmask(0) | bitmask(1)) | bitmask(2))) | (g)->currentWhite_))
+#define gray2black(o)   l_setbit((o)->header_.marked, 2)
+
+
+// --- GCObject ---
+// No methods need to be implemented here after removing RC.
+
+// --- AdvancedGarbageCollector ---
+
+AdvancedGarbageCollector::AdvancedGarbageCollector()
+    : collectionThreshold_(1024 * 1024) // 1 MB
+    , debt_(0)
+    , currentWhite_(bitmask(0))
+{
+    GC_LOG_INFO("Tracing Garbage Collector initialized.");
+}
+
+AdvancedGarbageCollector::~AdvancedGarbageCollector() {
+    GC_LOG_INFO("Shutting down Garbage Collector.");
+    // Free all remaining objects to prevent leaks on shutdown.
+    // In a real app, the state's closing would handle this.
+    freeAllObjects();
+}
+
+void AdvancedGarbageCollector::trackObject(GCObject* obj) {
+    if (!obj) return;
+    std::lock_guard<std::mutex> lock(gcMutex_);
+    obj->header_.next = allObjects_;
+    allObjects_ = obj;
+    makewhite(this, obj);
+    stats_.totalAllocated += obj->objectSize();
+    stats_.currentObjects++;
+    GC_LOG_TRACE("Tracked new object: {} (type: {})", static_cast<void*>(obj), static_cast<int>(obj->type()));
+}
+
+
+void AdvancedGarbageCollector::add_root(GCObject* obj) {
+    if (!obj) return;
+    std::lock_guard<std::mutex> lock(gcMutex_);
+    roots_.insert(obj);
+    GC_LOG_DEBUG("Added root: {} (type: {})", static_cast<void*>(obj), static_cast<int>(obj->type()));
+}
+
+void AdvancedGarbageCollector::remove_root(GCObject* obj) {
+    if (!obj) return;
+    std::lock_guard<std::mutex> lock(gcMutex_);
+    roots_.erase(obj);
+    GC_LOG_DEBUG("Removed root: {}", static_cast<void*>(obj));
+}
+
+
+void AdvancedGarbageCollector::markObject(GCObject* obj) {
+    if (obj && isWhite(obj)) {
+        markGray(obj);
+    }
+}
+
+void AdvancedGarbageCollector::markValue(const Value& value) {
+    if (value.is_gc_object()) {
+        markObject(value.as_gc_object());
+    }
+}
+
+
+void AdvancedGarbageCollector::markGray(GCObject* obj) {
+    gray2black(obj); // Temporarily mark black to prevent re-graying
+    l_setbit(obj->header_.marked, 3); // Use bit 3 as gray flag
+    obj->header_.next = gray_;
+    gray_ = obj;
+}
+
+void AdvancedGarbageCollector::propagateMark() {
+    while (gray_) {
+        GCObject* current = gray_;
+        gray_ = current->header_.next;
+        current->traverse(*this);
+    }
+}
+
+
+void AdvancedGarbageCollector::collect() {
+    RANGELUA_DEBUG_TIMER("gc_full_collection");
+    std::lock_guard<std::mutex> lock(gcMutex_);
+    GC_LOG_INFO("Starting full garbage collection cycle.");
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    mark_phase();
+    atomicStep();
+    sweep_phase();
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    stats_.lastCollectionTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time);
+    stats_.totalCollectionTime += stats_.lastCollectionTime;
+    stats_.collectionsRun++;
+
+    GC_LOG_INFO("Garbage collection cycle finished in {} ms.", stats_.lastCollectionTime.count() / 1e6);
+}
+
+void AdvancedGarbageCollector::emergencyCollection() {
+    collect();
+}
+
+void AdvancedGarbageCollector::mark_phase() {
+    RANGELUA_DEBUG_TIMER("gc_mark_phase");
+    GC_LOG_DEBUG("Mark phase started. Roots: {}", roots_.size());
+
+    // Mark all roots
+    for (auto* root : roots_) {
+        markObject(root);
+    }
+
+    // Propagate marks
+    propagateMark();
+}
+
+void AdvancedGarbageCollector::atomicStep() {
+    RANGELUA_DEBUG_TIMER("gc_atomic_phase");
+    GC_LOG_DEBUG("Atomic phase started.");
+
+    // This is where weak table logic would go.
+    // For now, it's a placeholder.
+
+    // After propagation, separate finalizable objects.
+    GCObject** p = &allObjects_;
+    while (*p) {
+        GCObject* current = *p;
+        if (isWhite(current) && MetamethodSystem::has_metamethod(Value(current), Metamethod::GC)) {
+            *p = current->header_.next; // remove from allgc
+            current->header_.next = toBeFinalized_;
+            toBeFinalized_ = current;
+            l_setbit(current->header_.marked, 5); // Finalize bit
         }
-
-        // RANGELUA_DEBUG_PRINT("Deleting GCObject immediately");
-        delete this;
-    }
-
-    // AdvancedGarbageCollector implementation
-    AdvancedGarbageCollector::AdvancedGarbageCollector(GCStrategy strategy)
-        : strategy_(strategy)
-        , cycleDetectionThreshold_(1000)
-        , memoryPressureThreshold_(64 * 1024 * 1024)  // 64MB
-        , collectionInterval_(std::chrono::milliseconds(100))
-        , stats_{}
-        , roots_{}
-        , allObjects_{}
-        , gcMutex_{} {
-        GC_LOG_INFO("AdvancedGarbageCollector initialized with strategy: {}",
-                     static_cast<int>(strategy_));
-    }
-
-    void AdvancedGarbageCollector::collect() {
-        RANGELUA_DEBUG_TIMER("gc_collection");
-
-        std::lock_guard<std::mutex> lock(gcMutex_);
-
-        auto start_time = std::chrono::high_resolution_clock::now();
-        GC_LOG_DEBUG("Starting garbage collection cycle");
-        // RANGELUA_DEBUG_PRINT("GC collection started with strategy: " +
-        //                      std::to_string(static_cast<int>(strategy_)));
-
-        Size objects_before = allObjects_.size();
-        // RANGELUA_DEBUG_PRINT("Objects before collection: " + std::to_string(objects_before));
-
-        try {
-            switch (strategy_) {
-                case GCStrategy::REFERENCE_COUNTING:
-                    // Pure reference counting - objects are deleted immediately when refcount
-                    // reaches 0 No additional collection needed
-                    // RANGELUA_DEBUG_PRINT(
-                    //     "Using reference counting strategy - no additional work needed");
-                    break;
-
-                case GCStrategy::HYBRID_RC_TRACING:
-                    // Hybrid approach: reference counting + cycle detection
-                    // RANGELUA_DEBUG_PRINT("Using hybrid RC+tracing strategy");
-                    performCycleDetection();
-                    break;
-
-                case GCStrategy::MARK_AND_SWEEP:
-                    // RANGELUA_DEBUG_PRINT("Using mark-and-sweep strategy");
-                    mark_phase();
-                    sweep_phase();
-                    break;
-
-                default:
-                    GC_LOG_WARN("Unsupported GC strategy: {}", static_cast<int>(strategy_));
-                    log_error(ErrorCode::RUNTIME_ERROR,
-                              "Unsupported GC strategy: " +
-                                  std::to_string(static_cast<int>(strategy_)));
-                    break;
-            }
-        } catch (const std::exception& e) {
-            log_error(ErrorCode::RUNTIME_ERROR,
-                      "Exception during garbage collection: " + String(e.what()));
-            GC_LOG_ERROR("Exception during garbage collection: {}", e.what());
-            throw;
-        }
-
-        Size objects_after = allObjects_.size();
-        [[maybe_unused]] Size objects_collected =
-            objects_before >= objects_after ? objects_before - objects_after : 0;
-
-        auto end_time = std::chrono::high_resolution_clock::now();
-        auto collection_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time);
-
-        // Update statistics
-        stats_.collectionsRun++;
-        stats_.lastCollectionTime = collection_time;
-        stats_.totalCollectionTime += collection_time;
-        stats_.currentObjects = objects_after;
-
-        GC_LOG_DEBUG("Garbage collection completed: {} objects collected in {}ns",
-                     objects_collected,
-                     collection_time.count());
-
-        // RANGELUA_DEBUG_PRINT(
-        //     "GC collection completed - Objects collected: " + std::to_string(objects_collected) +
-        //     ", Time: " + std::to_string(collection_time.count()) + "ns");
-    }
-
-    void AdvancedGarbageCollector::mark_phase() {
-        GC_LOG_DEBUG("Starting mark phase");
-
-        // Unmark all objects first
-        for (auto* obj : allObjects_) {
-            if (obj) {
-                obj->unmark();
-            }
-        }
-
-        // Mark all reachable objects from roots
-        markReachableFromRoots();
-
-        GC_LOG_DEBUG("Mark phase completed");
-    }
-
-    void AdvancedGarbageCollector::sweep_phase() {
-        GC_LOG_DEBUG("Starting sweep phase");
-
-        sweepUnmarkedObjects();
-
-        GC_LOG_DEBUG("Sweep phase completed");
-    }
-
-    void AdvancedGarbageCollector::add_root(void* ptr) {
-        if (!ptr) return;
-
-        std::lock_guard<std::mutex> lock(gcMutex_);
-        roots_.insert(ptr);
-        GC_LOG_DEBUG("Added root pointer: {}", ptr);
-    }
-
-    void AdvancedGarbageCollector::remove_root(void* ptr) {
-        if (!ptr) return;
-
-        std::lock_guard<std::mutex> lock(gcMutex_);
-        roots_.erase(ptr);
-        GC_LOG_DEBUG("Removed root pointer: {}", ptr);
-    }
-
-    void AdvancedGarbageCollector::add_root(GCObject* obj) {
-        if (!obj) return;
-
-        std::lock_guard<std::mutex> lock(gcMutex_);
-        roots_.insert(obj);
-        allObjects_.insert(obj);
-        GC_LOG_DEBUG("Added root GCObject: {} (type: {})",
-                     static_cast<void*>(obj),
-                     static_cast<int>(obj->type()));
-    }
-
-    void AdvancedGarbageCollector::remove_root(GCObject* obj) {
-        if (!obj) return;
-
-        std::lock_guard<std::mutex> lock(gcMutex_);
-        roots_.erase(obj);
-        allObjects_.erase(obj);
-        GC_LOG_DEBUG("Removed root GCObject: {} (type: {})",
-                     static_cast<void*>(obj),
-                     static_cast<int>(obj->type()));
-    }
-
-    void AdvancedGarbageCollector::setMemoryManager(RuntimeMemoryManager* manager) noexcept {
-        // Store reference to memory manager for integration
-        // In a full implementation, we'd use this for allocation tracking
-        GC_LOG_DEBUG("Memory manager set: {}", static_cast<void*>(manager));
-    }
-
-    void AdvancedGarbageCollector::requestCollection() noexcept {
-        // Schedule a collection to run at the next opportunity
-        // For now, we'll run it immediately
-        try {
-            collect();
-        } catch (...) {
-            GC_LOG_ERROR("Exception during requested garbage collection");
+        else {
+            p = &current->header_.next;
         }
     }
 
-    void AdvancedGarbageCollector::emergencyCollection() {
-        GC_LOG_WARN("Emergency garbage collection triggered");
+    // Mark finalizable objects and their dependencies so they are not collected yet.
+    GCObject* f = toBeFinalized_;
+    toBeFinalized_ = nullptr; // List will be rebuilt
+    while (f) {
+        GCObject* next = f->header_.next;
+        f->header_.next = nullptr;
+        markGray(f);
+        propagateMark(); // Mark all dependencies
+        f->header_.next = toBeFinalized_;
+        toBeFinalized_ = f;
+        f = next;
+    }
+}
 
-        // Force immediate collection regardless of current state
-        try {
-            collect();
 
-            // If still under memory pressure, try more aggressive collection
-            if (memoryUsage() > memoryPressureThreshold_) {
-                handleMemoryPressure();
-            }
-        } catch (...) {
-            GC_LOG_ERROR("Exception during emergency garbage collection");
+void AdvancedGarbageCollector::sweep_phase() {
+    RANGELUA_DEBUG_TIMER("gc_sweep_phase");
+    isSweeping_ = true;
+    GC_LOG_DEBUG("Sweep phase started.");
+
+    // Sweeping main list
+    sweep(&allObjects_);
+
+    // Sweeping finalizable list (for next cycle)
+    sweep(&toBeFinalized_);
+
+    isSweeping_ = false;
+
+    // Flip colors for the next cycle
+    currentWhite_ = otherwhite(this);
+
+    // Call finalizers for objects collected in this cycle
+    callFinalizers();
+}
+
+
+void AdvancedGarbageCollector::sweep(GCObject** list) {
+    GCObject** p = list;
+    Size freed_count = 0;
+    Size freed_bytes = 0;
+
+    while (*p) {
+        GCObject* current = *p;
+        if (isWhite(current)) {
+            // White object is garbage
+            *p = current->header_.next; // Unlink
+            freed_bytes += current->objectSize();
+            delete current;
+            freed_count++;
+        } else {
+            // Black object survives, turn it white for next cycle
+            makewhite(this, current);
+            p = &current->header_.next;
         }
     }
+    stats_.totalFreed += freed_bytes;
+    stats_.currentObjects -= freed_count;
+    GC_LOG_DEBUG("Swept list: {} objects freed ({} bytes).", freed_count, freed_bytes);
+}
 
-    void AdvancedGarbageCollector::setCollectionThreshold(Size threshold) noexcept {
-        cycleDetectionThreshold_ = threshold;
-        GC_LOG_DEBUG("Collection threshold set to: {}", threshold);
+void AdvancedGarbageCollector::callFinalizers() {
+    GCObject* current = toBeFinalized_;
+    toBeFinalized_ = nullptr; // Clear list before running finalizers
+    while (current) {
+        GCObject* next = current->header_.next;
+        GC_LOG_DEBUG("Finalizing object: {}", static_cast<void*>(current));
+        // In VM: vm->callmeta(current, "__gc")
+        // For now, we simulate this.
+        // After finalizer, object becomes regular garbage for the next cycle
+        makewhite(this, current);
+        resetbit(current->header_.marked, 5); // Clear finalize bit
+        current->header_.next = allObjects_;
+        allObjects_ = current;
+        current = next;
     }
+}
 
-    bool AdvancedGarbageCollector::isCollecting() const noexcept {
-        // Check if GC is currently running (would need atomic flag in real implementation)
-        return false;  // Simplified for now
+void AdvancedGarbageCollector::freeAllObjects() {
+    GC_LOG_WARN("Freeing all GC objects.");
+    GCObject* current = allObjects_;
+    while (current) {
+        GCObject* next = current->header_.next;
+        delete current;
+        current = next;
     }
+    allObjects_ = nullptr;
+}
 
-    Size AdvancedGarbageCollector::objectCount() const noexcept {
-        std::lock_guard<std::mutex> lock(gcMutex_);
-        return allObjects_.size();
-    }
 
-    Size AdvancedGarbageCollector::memoryUsage() const noexcept {
-        std::lock_guard<std::mutex> lock(gcMutex_);
+// --- GarbageCollector interface stubs ---
+void AdvancedGarbageCollector::add_root(void* ptr) { add_root(static_cast<GCObject*>(ptr)); }
+void AdvancedGarbageCollector::remove_root(void* ptr) { remove_root(static_cast<GCObject*>(ptr)); }
+void AdvancedGarbageCollector::setMemoryManager(RuntimeMemoryManager* manager) noexcept { memoryManager_ = manager; }
+void AdvancedGarbageCollector::requestCollection() noexcept { /* For now, does nothing */ }
+[[nodiscard]] bool AdvancedGarbageCollector::isCollecting() const noexcept { return false; }
+[[nodiscard]] Size AdvancedGarbageCollector::objectCount() const noexcept { return stats_.currentObjects; }
+[[nodiscard]] Size AdvancedGarbageCollector::memoryUsage() const noexcept { return stats_.totalAllocated - stats_.totalFreed; }
+void AdvancedGarbageCollector::setCollectionThreshold(Size threshold) noexcept { collectionThreshold_ = threshold; }
+void AdvancedGarbageCollector::setCollectionInterval(std::chrono::milliseconds /*interval*/) noexcept { /* no-op */ }
+[[nodiscard]] const GCStats& AdvancedGarbageCollector::stats() const noexcept { return stats_; }
+void AdvancedGarbageCollector::resetStats() noexcept { stats_ = {}; }
 
-        Size total_size = 0;
-        for (const auto* obj : allObjects_) {
-            if (obj) {
-                total_size += obj->objectSize();
-            }
-        }
-        return total_size;
-    }
 
-    void AdvancedGarbageCollector::setStrategy(GCStrategy strategy) noexcept {
-        std::lock_guard<std::mutex> lock(gcMutex_);
-        strategy_ = strategy;
-        GC_LOG_INFO("GC strategy changed to: {}", static_cast<int>(strategy));
-    }
-
-    GCStrategy AdvancedGarbageCollector::strategy() const noexcept {
-        return strategy_;
-    }
-
-    void AdvancedGarbageCollector::setCycleDetectionThreshold(Size threshold) noexcept {
-        cycleDetectionThreshold_ = threshold;
-        GC_LOG_DEBUG("Cycle detection threshold set to: {}", threshold);
-    }
-
-    void AdvancedGarbageCollector::setCollectionInterval(std::chrono::milliseconds interval) noexcept {
-        collectionInterval_ = interval;
-        GC_LOG_DEBUG("Collection interval set to: {}ms", interval.count());
-    }
-
-    const GCStats& AdvancedGarbageCollector::stats() const noexcept {
-        return stats_;
-    }
-
-    void AdvancedGarbageCollector::resetStats() noexcept {
-        std::lock_guard<std::mutex> lock(gcMutex_);
-        stats_ = {};
-        GC_LOG_DEBUG("GC statistics reset");
-    }
-
-    Size AdvancedGarbageCollector::detectCycles() {
-        std::lock_guard<std::mutex> lock(gcMutex_);
-
-        GC_LOG_DEBUG("Starting cycle detection");
-        Size cycles_found = 0;
-
-        // Simple cycle detection algorithm
-        // In a real implementation, this would use more sophisticated algorithms
-        // like the tri-color marking algorithm or Bacon-Rajan cycle collection
-
-        for (auto* obj : allObjects_) {
-            if (obj && obj->refCount() > 0 && !obj->isMarked()) {
-                if (isInCycle(obj)) {
-                    cycles_found++;
-                    GC_LOG_DEBUG("Cycle detected involving object: {}", static_cast<void*>(obj));
-                }
-            }
-        }
-
-        stats_.cyclesDetected += cycles_found;
-        GC_LOG_DEBUG("Cycle detection completed: {} cycles found", cycles_found);
-        return cycles_found;
-    }
-
-    void AdvancedGarbageCollector::breakCycles() {
-        std::lock_guard<std::mutex> lock(gcMutex_);
-
-        GC_LOG_DEBUG("Breaking detected cycles");
-
-        // In a real implementation, this would break cycles by:
-        // 1. Identifying strongly connected components
-        // 2. Breaking weak references in cycles
-        // 3. Scheduling objects for deletion
-
-        // For now, we'll just log the action
-        GC_LOG_DEBUG("Cycle breaking completed");
-    }
-
-    void AdvancedGarbageCollector::handleMemoryPressure() {
-        GC_LOG_WARN("Handling memory pressure");
-
-        // Aggressive collection strategies under memory pressure
-        GCStrategy original_strategy = strategy_;
-
-        try {
-            // Temporarily switch to mark-and-sweep for more thorough collection
-            if (strategy_ != GCStrategy::MARK_AND_SWEEP) {
-                setStrategy(GCStrategy::MARK_AND_SWEEP);
-                collect();
-            }
-
-            // Force cycle detection and breaking
-            detectCycles();
-            breakCycles();
-
-            // Run another collection cycle
-            collect();
-
-        } catch (...) {
-            GC_LOG_ERROR("Exception during memory pressure handling");
-        }
-
-        // Restore original strategy
-        setStrategy(original_strategy);
-
-        GC_LOG_INFO("Memory pressure handling completed");
-    }
-
-    void AdvancedGarbageCollector::setMemoryPressureThreshold(Size threshold) noexcept {
-        memoryPressureThreshold_ = threshold;
-        GC_LOG_DEBUG("Memory pressure threshold set to: {}", threshold);
-    }
-
-    // Private implementation methods
-    void AdvancedGarbageCollector::performCycleDetection() {
-        GC_LOG_DEBUG("Performing cycle detection for hybrid GC");
-
-        // Only run cycle detection if we have enough objects
-        if (allObjects_.size() >= cycleDetectionThreshold_) {
-            Size cycles = detectCycles();
-            if (cycles > 0) {
-                breakCycles();
-            }
-        }
-    }
-
-    bool AdvancedGarbageCollector::isInCycle(GCObject* obj) {
-        if (!obj) return false;
-
-        // Simple cycle detection using DFS
-        // In a real implementation, this would be more sophisticated
-        std::unordered_set<GCObject*> visited;
-        std::unordered_set<GCObject*> recursion_stack;
-
-        std::function<bool(GCObject*)> dfs = [&](GCObject* current) -> bool {
-            if (!current) return false;
-
-            if (recursion_stack.count(current)) {
-                return true;  // Cycle detected
-            }
-
-            if (visited.count(current)) {
-                return false;  // Already processed
-            }
-
-            visited.insert(current);
-            recursion_stack.insert(current);
-
-            // Traverse all objects referenced by this object
-            bool cycle_found = false;
-            current->traverse([&](GCObject* referenced) {
-                if (referenced && dfs(referenced)) {
-                    cycle_found = true;
-                }
-            });
-
-            recursion_stack.erase(current);
-            return cycle_found;
-        };
-
-        return dfs(obj);
-    }
-
-    void AdvancedGarbageCollector::markReachableFromRoots() {
-        GC_LOG_DEBUG("Marking reachable objects from {} roots", roots_.size());
-
-        std::queue<GCObject*> work_queue;
-
-        // Add all root objects to the work queue
-        for (void* root_ptr : roots_) {
-            auto* gc_obj = static_cast<GCObject*>(root_ptr);
-            if (gc_obj && !gc_obj->isMarked()) {
-                gc_obj->mark();
-                work_queue.push(gc_obj);
-            }
-        }
-
-        // Process the work queue
-        while (!work_queue.empty()) {
-            GCObject* current = work_queue.front();
-            work_queue.pop();
-
-            // Traverse all objects referenced by the current object
-            current->traverse([&](GCObject* referenced) {
-                if (referenced && !referenced->isMarked()) {
-                    referenced->mark();
-                    work_queue.push(referenced);
-                }
-            });
-        }
-
-        GC_LOG_DEBUG("Marking phase completed");
-    }
-
-    void AdvancedGarbageCollector::sweepUnmarkedObjects() {
-        GC_LOG_DEBUG("Sweeping unmarked objects");
-
-        auto it = allObjects_.begin();
-        [[maybe_unused]] Size swept_count = 0;
-
-        while (it != allObjects_.end()) {
-            GCObject* obj = *it;
-
-            if (!obj || !obj->isMarked()) {
-                // Object is not marked, delete it
-                if (obj) {
-                    GC_LOG_DEBUG("Sweeping object: {} (type: {})",
-                                 static_cast<void*>(obj),
-                                 static_cast<int>(obj->type()));
-                    delete obj;
-                    swept_count++;
-                }
-                it = allObjects_.erase(it);
-            } else {
-                // Object is marked, keep it and unmark for next cycle
-                obj->unmark();
-                ++it;
-            }
-        }
-
-        GC_LOG_DEBUG("Sweep completed: {} objects deleted", swept_count);
-    }
-
-    // DefaultGarbageCollector implementation
-    DefaultGarbageCollector::DefaultGarbageCollector()
-        : AdvancedGarbageCollector(GCStrategy::HYBRID_RC_TRACING) {
-        GC_LOG_INFO("DefaultGarbageCollector initialized");
-    }
+// DefaultGarbageCollector implementation
+DefaultGarbageCollector::DefaultGarbageCollector() : AdvancedGarbageCollector() {
+    GC_LOG_INFO("Default Tracing Garbage Collector initialized");
+}
 
 }  // namespace rangelua::runtime

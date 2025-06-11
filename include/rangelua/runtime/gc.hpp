@@ -2,17 +2,19 @@
 
 /**
  * @file gc.hpp
- * @brief Modern C++20 garbage collection system for RangeLua - Declarations Only
- * @version 0.1.0
+ * @brief Modern C++20 Tracing Garbage Collector for RangeLua - Declarations Only
+ * @version 0.2.0
  *
- * This file contains only declarations for the GC system.
- * Implementations are provided in separate source files.
+ * This file contains declarations for a standard tracing garbage collector.
+ * It moves away from a complex hybrid system to a robust mark-and-sweep
+ * collector, which correctly handles cycles and finalizers.
  *
- * Design Goals:
- * - Lua 5.5 semantic compatibility
- * - Modern C++20 features (concepts, RAII, smart pointers)
- * - Performance optimization over std::shared_ptr
- * - Clear separation of concerns
+ * Design:
+ * - Tri-color Mark-and-Sweep algorithm.
+ * - No more reference counting in GCObject or GCPtr.
+ * - GCObjects are tracked in a single 'allgc' list.
+ * - Finalizers ('__gc') are handled correctly.
+ * - Weak references are handled by weak tables (WeakGCPtr removed).
  */
 
 #include <atomic>
@@ -29,37 +31,94 @@
 #include "../core/concepts.hpp"
 #include "../core/types.hpp"
 #include "memory.hpp"
-
 namespace rangelua::runtime {
 
     // Forward declarations
-    class GCObject;
-    class GCManager;
+    class AdvancedGarbageCollector;
     template <typename T>
     class GCPtr;
-    template <typename T>
-    class WeakGCPtr;
+    class RuntimeMemoryManager;
+    class Value;
+
+    /**
+     * @brief Enhanced garbage collector interface
+     *
+     * Supports multiple GC strategies and provides comprehensive
+     * monitoring and control capabilities.
+     */
+    class GarbageCollector {
+    public:
+        virtual ~GarbageCollector() = default;
+
+        // Non-copyable, non-movable by default
+        GarbageCollector(const GarbageCollector&) = delete;
+        GarbageCollector& operator=(const GarbageCollector&) = delete;
+        GarbageCollector(GarbageCollector&&) = delete;
+        GarbageCollector& operator=(GarbageCollector&&) = delete;
+
+    public:
+        // Root management (public for GCRoot RAII class)
+        virtual void add_root(void* ptr) = 0;
+        virtual void remove_root(void* ptr) = 0;
+        virtual void add_root(GCObject* obj) = 0;
+        virtual void remove_root(GCObject* obj) = 0;
+
+    protected:
+        GarbageCollector() = default;
+
+        // Core GC interface
+        virtual void collect() = 0;
+        virtual void mark_phase() = 0;
+        virtual void sweep_phase() = 0;
+
+        // Advanced features
+        virtual void setMemoryManager(RuntimeMemoryManager* manager) noexcept = 0;
+        virtual void requestCollection() noexcept = 0;
+        virtual void emergencyCollection() = 0;
+
+        // Configuration
+        virtual void setCollectionThreshold(Size threshold) noexcept = 0;
+        virtual void setCollectionInterval(std::chrono::milliseconds interval) noexcept = 0;
+
+        // Monitoring
+        [[nodiscard]] virtual bool isCollecting() const noexcept = 0;
+        [[nodiscard]] virtual Size objectCount() const noexcept = 0;
+        [[nodiscard]] virtual Size memoryUsage() const noexcept = 0;
+    };
 
     /**
      * @brief GC object concepts for type safety
      */
     template <typename T>
-    concept GCManaged = requires(T* obj) {
-        { obj->gcHeader() } -> std::convertible_to<GCHeader&>;
-        { obj->mark() } -> std::same_as<void>;
-        { obj->unmark() } -> std::same_as<void>;
-        { obj->isMarked() } -> std::same_as<bool>;
-        { obj->traverse(std::declval<std::function<void(GCObject*)>&>()) } -> std::same_as<void>;
+    concept GCManaged = requires(T* obj, AdvancedGarbageCollector& gc) {
+        { obj->header_ } -> std::convertible_to<GCHeader&>;
+        { obj->traverse(gc) } -> std::same_as<void>;
     };
 
     /**
-     * @brief Base class for all garbage-collected objects
+     * @brief Enhanced GC object header with modern C++20 patterns
+     */
+    struct GCHeader {
+        GCObject* next = nullptr;
+        LuaType type;
+        lu_byte marked = 0;
+
+        explicit constexpr GCHeader(LuaType t) noexcept : type(t), marked(0) {}
+
+        // Modern C++20 comparison operators
+        constexpr auto operator<=>(const GCHeader&) const noexcept = default;
+    };
+
+    /**
+     * @brief Base class for all garbage-collected objects.
      *
-     * Provides the interface required for both reference counting
-     * and tracing garbage collection strategies.
+     * This version removes reference counting to align with a tracing GC model.
+     * Objects are linked in a single list and their lifetime is managed by the collector.
      */
     class GCObject {
     public:
+        GCHeader header_;
+
         explicit GCObject(LuaType type) noexcept : header_(type) {}
         virtual ~GCObject() = default;
 
@@ -69,51 +128,30 @@ namespace rangelua::runtime {
         GCObject(GCObject&&) = delete;
         GCObject& operator=(GCObject&&) = delete;
 
-        // GC interface (inline implementations for concept satisfaction)
-        [[nodiscard]] GCHeader& gcHeader() noexcept { return header_; }
-        [[nodiscard]] const GCHeader& gcHeader() const noexcept { return header_; }
-
+        // GC interface
         [[nodiscard]] LuaType type() const noexcept { return header_.type; }
-        [[nodiscard]] bool isMarked() const noexcept { return header_.marked != 0; }
+        [[nodiscard]] lu_byte getMarked() const noexcept { return header_.marked; }
+        void setMarked(lu_byte m) noexcept { header_.marked = m; }
 
-        void mark() noexcept { header_.marked = 1; }
-        void unmark() noexcept { header_.marked = 0; }
+        /**
+         * @brief Traverses the object to mark its children.
+         * @param gc The garbage collector instance.
+         */
+        virtual void traverse(AdvancedGarbageCollector& gc) = 0;
 
-        // Reference counting for hybrid approach
-        void addRef() noexcept { ++refCount_; }
-        void removeRef() noexcept {
-            if (--refCount_ == 0) {
-                scheduleForDeletion();
-            }
-        }
-        [[nodiscard]] std::uint32_t refCount() const noexcept { return refCount_.load(); }
-
-        // Traversal for cycle detection and tracing GC
-        virtual void traverse(std::function<void(GCObject*)> visitor) = 0;
-
-        // Size calculation for memory management
+        /**
+         * @brief Calculates the memory size of the object.
+         */
         [[nodiscard]] virtual Size objectSize() const noexcept = 0;
 
-    protected:
-        virtual void scheduleForDeletion();
-
-    private:
-        GCHeader header_;
-        std::atomic<std::uint32_t> refCount_{0};
-
-        friend class GCManager;
-        template <typename T>
-        friend class GCPtr;
+        friend class AdvancedGarbageCollector;
     };
 
     /**
-     * @brief Smart pointer for GC-managed objects with cycle detection
+     * @brief Smart pointer for GC-managed objects.
      *
-     * Optimized replacement for std::shared_ptr with:
-     * - Lower overhead atomic operations
-     * - Integrated cycle detection
-     * - Weak reference support
-     * - Thread-safe reference counting
+     * This is a simple handle to a GC-managed object. It does not perform
+     * reference counting. The object's lifetime is managed by the tracing GC.
      */
     template <typename T>
     class GCPtr {
@@ -124,115 +162,51 @@ namespace rangelua::runtime {
 
         // Constructors
         constexpr GCPtr() noexcept = default;
-        constexpr explicit GCPtr(std::nullptr_t) noexcept;
-        explicit GCPtr(T* ptr) noexcept;
-
-        // Copy semantics
-        GCPtr(const GCPtr& other) noexcept;
-        template <typename U>
-            requires std::convertible_to<U*, T*>
-        explicit GCPtr(const GCPtr<U>& other) noexcept;
-
-        // Move semantics
-        GCPtr(GCPtr&& other) noexcept;
-        template <typename U>
-            requires std::convertible_to<U*, T*>
-        explicit GCPtr(GCPtr<U>&& other) noexcept;
-
-        // Assignment operators
-        GCPtr& operator=(const GCPtr& other) noexcept;
-        GCPtr& operator=(GCPtr&& other) noexcept;
-        GCPtr& operator=(std::nullptr_t) noexcept;
-
-        // Destructor
-        ~GCPtr();
-
-        // Access operators
-        [[nodiscard]] T& operator*() const noexcept;
-        [[nodiscard]] T* operator->() const noexcept;
-        [[nodiscard]] T* get() const noexcept;
-
-        // Boolean conversion
-        [[nodiscard]] explicit operator bool() const noexcept;
-
-        // Comparison operators (inline implementations for templates)
-        [[nodiscard]] bool operator==(const GCPtr& other) const noexcept {
-            return ptr_ == other.ptr_;
-        }
-        [[nodiscard]] bool operator!=(const GCPtr& other) const noexcept {
-            return ptr_ != other.ptr_;
-        }
-        [[nodiscard]] bool operator<(const GCPtr& other) const noexcept {
-            return ptr_ < other.ptr_;
-        }
-
-        // Utility methods
-        void reset() noexcept;
-        void reset(T* ptr) noexcept;
-        [[nodiscard]] Size use_count() const noexcept;
-        [[nodiscard]] bool unique() const noexcept;
-
-        // Weak reference creation
-        [[nodiscard]] WeakGCPtr<T> weak() const noexcept;
-
-    private:
-        T* ptr_ = nullptr;
-
-        template <typename U>
-        friend class GCPtr;
-        template <typename U>
-        friend class WeakGCPtr;
-    };
-
-    /**
-     * @brief Weak pointer for GC-managed objects
-     *
-     * Provides non-owning references that don't affect reference counting.
-     * Used for breaking cycles and implementing weak references.
-     */
-    template <typename T>
-    class WeakGCPtr {
-    public:
-        using element_type = T;
-
-        // Constructors
-        constexpr WeakGCPtr() noexcept = default;
-        explicit WeakGCPtr(const GCPtr<T>& ptr) noexcept;
-        template <typename U>
-            requires std::convertible_to<U*, T*>
-        explicit WeakGCPtr(const GCPtr<U>& ptr) noexcept;
+        constexpr explicit GCPtr(std::nullptr_t) noexcept : ptr_(nullptr) {}
+        explicit GCPtr(T* ptr) noexcept : ptr_(ptr) {}
 
         // Copy and move semantics
-        WeakGCPtr(const WeakGCPtr&) = default;
-        WeakGCPtr& operator=(const WeakGCPtr&) = default;
-        WeakGCPtr(WeakGCPtr&&) noexcept = default;
-        WeakGCPtr& operator=(WeakGCPtr&&) noexcept = default;
+        GCPtr(const GCPtr& other) noexcept = default;
+        template <typename U>
+            requires std::convertible_to<U*, T*>
+        explicit GCPtr(const GCPtr<U>& other) noexcept : ptr_(other.get()) {}
 
-        // Lock to get strong reference
-        [[nodiscard]] GCPtr<T> lock() const noexcept;
+        GCPtr(GCPtr&& other) noexcept = default;
+        template <typename U>
+            requires std::convertible_to<U*, T*>
+        explicit GCPtr(GCPtr<U>&& other) noexcept : ptr_(other.get()) { other.reset(); }
 
-        // Check if object still exists
-        [[nodiscard]] bool expired() const noexcept;
+        // Assignment operators
+        GCPtr& operator=(const GCPtr& other) noexcept = default;
+        GCPtr& operator=(GCPtr&& other) noexcept = default;
+        GCPtr& operator=(std::nullptr_t) noexcept {
+            ptr_ = nullptr;
+            return *this;
+        }
 
-        // Reset
-        void reset() noexcept;
+        // Destructor (does nothing, GC handles memory)
+        ~GCPtr() = default;
 
-        // Comparison
-        [[nodiscard]] bool operator==(const WeakGCPtr& other) const noexcept;
+        // Access operators
+        [[nodiscard]] T& operator*() const noexcept { return *ptr_; }
+        [[nodiscard]] T* operator->() const noexcept { return ptr_; }
+        [[nodiscard]] T* get() const noexcept { return ptr_; }
+
+        // Boolean conversion
+        [[nodiscard]] explicit operator bool() const noexcept { return ptr_ != nullptr; }
+
+        // Comparison operators
+        [[nodiscard]] bool operator==(const GCPtr& other) const noexcept { return ptr_ == other.ptr_; }
+        [[nodiscard]] auto operator<=>(const GCPtr& other) const noexcept = default;
+
+        // Utility methods
+        void reset() noexcept { ptr_ = nullptr; }
+        void reset(T* ptr) noexcept { ptr_ = ptr; }
+        [[nodiscard]] long use_count() const noexcept { return ptr_ ? 1 : 0; } // Simplified
+        [[nodiscard]] bool unique() const noexcept { return use_count() == 1; }
 
     private:
         T* ptr_ = nullptr;
-    };
-
-    /**
-     * @brief Cycle detection and collection strategies
-     */
-    enum class GCStrategy : std::uint8_t {
-        REFERENCE_COUNTING = 0,  // Pure reference counting (current)
-        HYBRID_RC_TRACING = 1,   // Reference counting with cycle detection
-        MARK_AND_SWEEP = 2,      // Traditional mark-and-sweep
-        GENERATIONAL = 3,        // Generational GC (future)
-        INCREMENTAL = 4          // Incremental GC (future)
     };
 
     /**
@@ -242,24 +216,20 @@ namespace rangelua::runtime {
         Size totalAllocated = 0;
         Size totalFreed = 0;
         Size currentObjects = 0;
-        Size cyclesDetected = 0;
         Size collectionsRun = 0;
         std::chrono::nanoseconds totalCollectionTime{0};
         std::chrono::nanoseconds lastCollectionTime{0};
     };
 
     /**
-     * @brief Advanced garbage collector with cycle detection
+     * @brief A standard tracing garbage collector.
      *
-     * Implements a hybrid approach:
-     * 1. Primary: Optimized reference counting
-     * 2. Secondary: Periodic cycle detection for circular references
-     * 3. Future: Interface for tracing GC migration
+     * Implements a tri-color mark-and-sweep algorithm.
      */
     class AdvancedGarbageCollector : public GarbageCollector {
     public:
-        explicit AdvancedGarbageCollector(GCStrategy strategy = GCStrategy::HYBRID_RC_TRACING);
-        ~AdvancedGarbageCollector() override = default;
+        explicit AdvancedGarbageCollector();
+        ~AdvancedGarbageCollector() override;
 
         // Non-copyable, non-movable
         AdvancedGarbageCollector(const AdvancedGarbageCollector&) = delete;
@@ -267,383 +237,91 @@ namespace rangelua::runtime {
         AdvancedGarbageCollector(AdvancedGarbageCollector&&) = delete;
         AdvancedGarbageCollector& operator=(AdvancedGarbageCollector&&) = delete;
 
-        // GarbageCollector interface
+        // Public GC interface
         void collect() override;
+        void emergencyCollection() override;
+
+        // Object and root management
+        void trackObject(GCObject* obj);
+        void add_root(GCObject* obj) override;
+        void remove_root(GCObject* obj) override;
+
+        // Used by GCObject::traverse to mark children
+        void markObject(GCObject* obj);
+        void markValue(const Value& value);
+
+        // Configuration and monitoring
+        void setCollectionThreshold(Size threshold) noexcept override;
+        void setCollectionInterval(std::chrono::milliseconds interval) noexcept override;
+        [[nodiscard]] const GCStats& stats() const noexcept;
+        void resetStats() noexcept;
+
+    protected:
+        // Internal GC interface (from GarbageCollector)
         void mark_phase() override;
         void sweep_phase() override;
         void add_root(void* ptr) override;
         void remove_root(void* ptr) override;
-        void add_root(GCObject* obj) override;
-        void remove_root(GCObject* obj) override;
         void setMemoryManager(RuntimeMemoryManager* manager) noexcept override;
         void requestCollection() noexcept override;
-        void emergencyCollection() override;
-        void setCollectionThreshold(Size threshold) noexcept override;
         [[nodiscard]] bool isCollecting() const noexcept override;
         [[nodiscard]] Size objectCount() const noexcept override;
         [[nodiscard]] Size memoryUsage() const noexcept override;
 
-        // Advanced features
-        void setStrategy(GCStrategy strategy) noexcept;
-        [[nodiscard]] GCStrategy strategy() const noexcept;
-        void setCycleDetectionThreshold(Size threshold) noexcept;
-        void setCollectionInterval(std::chrono::milliseconds interval) noexcept override;
-
-        // Statistics and monitoring
-        [[nodiscard]] const GCStats& stats() const noexcept;
-        void resetStats() noexcept;
-
-        // Manual cycle detection
-        Size detectCycles();
-        void breakCycles();
-
-        // Memory pressure handling
-        void handleMemoryPressure();
-        void setMemoryPressureThreshold(Size threshold) noexcept;
-
     private:
-        GCStrategy strategy_;
-        Size cycleDetectionThreshold_;
-        Size memoryPressureThreshold_;
-        std::chrono::milliseconds collectionInterval_;
+        // Tri-color marking
+        void markGray(GCObject* obj);
+        void propagateMark();
+        void atomicStep();
+        void sweep(GCObject** list);
+        void callFinalizers();
+        void freeAllObjects();
 
+        std::mutex gcMutex_;
         GCStats stats_;
-        std::unordered_set<void*> roots_;
-        std::unordered_set<GCObject*> allObjects_;
-        mutable std::mutex gcMutex_;
+        Size collectionThreshold_;
+        Size debt_;
 
-        // Cycle detection implementation
-        void performCycleDetection();
-        bool isInCycle(GCObject* obj);
-        void markReachableFromRoots();
-        void sweepUnmarkedObjects();
+        // Object lists
+        GCObject* allObjects_ = nullptr;
+        GCObject* gray_ = nullptr;
+        GCObject* grayAgain_ = nullptr;
+        GCObject* toBeFinalized_ = nullptr;
+        GCObject* weak_ = nullptr;
+        GCObject* allweak_ = nullptr;
+        GCObject* ephemeron_ = nullptr;
+
+        // Root set
+        std::unordered_set<GCObject*> roots_;
+
+        lu_byte currentWhite_;
+        bool isSweeping_ = false;
+
+        // VM and State interaction
+        RuntimeMemoryManager* memoryManager_ = nullptr;
+        std::vector<class VirtualMachine*> vms_;
     };
 
-    /**
-     * @brief Factory functions for creating GC-managed objects
-     */
-    template <typename T, typename... Args>
-    [[nodiscard]] GCPtr<T> makeGCObject(Args&&... args);
-
-    // Internal helper for GC registration
     namespace detail {
         void registerWithGC(GCObject* obj);
     }
 
     /**
-     * @brief RAII GC root manager
-     *
-     * Automatically manages GC roots with RAII semantics.
-     * Ensures roots are properly added/removed from the GC.
+     * @brief Factory function for creating GC-managed objects
      */
-    template <typename T>
-    class GCRoot {
-    public:
-        explicit GCRoot(GCPtr<T> ptr, GarbageCollector& gc);
-        ~GCRoot();
-
-        // Non-copyable, movable
-        GCRoot(const GCRoot&) = delete;
-        GCRoot& operator=(const GCRoot&) = delete;
-        GCRoot(GCRoot&& other) noexcept;
-        GCRoot& operator=(GCRoot&& other) noexcept;
-
-        // Access
-        [[nodiscard]] T& operator*() const noexcept;
-        [[nodiscard]] T* operator->() const noexcept;
-        [[nodiscard]] T* get() const noexcept;
-        [[nodiscard]] const GCPtr<T>& ptr() const noexcept;
-
-    private:
-        GCPtr<T> ptr_;
-        GarbageCollector& gc_;
-    };
+    template <std::derived_from<GCObject> T, typename... Args>
+    [[nodiscard]] inline GCPtr<T> makeGCObject(Args&&... args) {
+        T* obj = new T(std::forward<Args>(args)...);
+        detail::registerWithGC(obj);
+        return GCPtr<T>(obj);
+    }
 
     /**
      * @brief Default garbage collector implementation
-     *
-     * Maintains backward compatibility while providing
-     * the new advanced GC features.
      */
     class DefaultGarbageCollector : public AdvancedGarbageCollector {
     public:
         DefaultGarbageCollector();
     };
-
-    // Template implementations
-
-    // GCPtr template method implementations
-    template <typename T>
-    constexpr GCPtr<T>::GCPtr(std::nullptr_t) noexcept : ptr_(nullptr) {}
-
-    template <typename T>
-    GCPtr<T>::GCPtr(T* ptr) noexcept : ptr_(ptr) {
-        if constexpr (std::derived_from<T, GCObject>) {
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->addRef();
-            }
-        }
-    }
-
-    template <typename T>
-    GCPtr<T>::GCPtr(const GCPtr& other) noexcept : ptr_(other.ptr_) {
-        if constexpr (std::derived_from<T, GCObject>) {
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->addRef();
-            }
-        }
-    }
-
-    template <typename T>
-    template <typename U>
-        requires std::convertible_to<U*, T*>
-    GCPtr<T>::GCPtr(const GCPtr<U>& other) noexcept : ptr_(other.ptr_) {
-        if constexpr (std::derived_from<T, GCObject>) {
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->addRef();
-            }
-        }
-    }
-
-    template <typename T>
-    GCPtr<T>::GCPtr(GCPtr&& other) noexcept : ptr_(other.ptr_) {
-        other.ptr_ = nullptr;
-    }
-
-    template <typename T>
-    template <typename U>
-        requires std::convertible_to<U*, T*>
-    GCPtr<T>::GCPtr(GCPtr<U>&& other) noexcept : ptr_(other.ptr_) {
-        other.ptr_ = nullptr;
-    }
-
-    template <typename T>
-    GCPtr<T>& GCPtr<T>::operator=(const GCPtr& other) noexcept {
-        if (this != &other) {
-            if constexpr (std::derived_from<T, GCObject>) {
-                if (ptr_) {
-                    static_cast<GCObject*>(ptr_)->removeRef();
-                }
-            }
-            ptr_ = other.ptr_;
-            if constexpr (std::derived_from<T, GCObject>) {
-                if (ptr_) {
-                    static_cast<GCObject*>(ptr_)->addRef();
-                }
-            }
-        }
-        return *this;
-    }
-
-    template <typename T>
-    GCPtr<T>& GCPtr<T>::operator=(GCPtr&& other) noexcept {
-        if (this != &other) {
-            if constexpr (std::derived_from<T, GCObject>) {
-                if (ptr_) {
-                    static_cast<GCObject*>(ptr_)->removeRef();
-                }
-            }
-            ptr_ = other.ptr_;
-            other.ptr_ = nullptr;
-        }
-        return *this;
-    }
-
-    template <typename T>
-    GCPtr<T>& GCPtr<T>::operator=(std::nullptr_t) noexcept {
-        if constexpr (std::derived_from<T, GCObject>) {
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->removeRef();
-                ptr_ = nullptr;
-            }
-        } else {
-            ptr_ = nullptr;
-        }
-        return *this;
-    }
-
-    template <typename T>
-    GCPtr<T>::~GCPtr() {
-        if constexpr (std::derived_from<T, GCObject>) {
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->removeRef();
-            }
-        }
-    }
-
-    template <typename T>
-    T& GCPtr<T>::operator*() const noexcept {
-        return *ptr_;
-    }
-
-    template <typename T>
-    T* GCPtr<T>::operator->() const noexcept {
-        return ptr_;
-    }
-
-    template <typename T>
-    T* GCPtr<T>::get() const noexcept {
-        return ptr_;
-    }
-
-    template <typename T>
-    GCPtr<T>::operator bool() const noexcept {
-        return ptr_ != nullptr;
-    }
-
-    template <typename T>
-    void GCPtr<T>::reset() noexcept {
-        if constexpr (std::derived_from<T, GCObject>) {
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->removeRef();
-                ptr_ = nullptr;
-            }
-        } else {
-            ptr_ = nullptr;
-        }
-    }
-
-    template <typename T>
-    void GCPtr<T>::reset(T* ptr) noexcept {
-        if constexpr (std::derived_from<T, GCObject>) {
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->removeRef();
-            }
-            ptr_ = ptr;
-            if (ptr_) {
-                static_cast<GCObject*>(ptr_)->addRef();
-            }
-        } else {
-            ptr_ = ptr;
-        }
-    }
-
-    template <typename T>
-    Size GCPtr<T>::use_count() const noexcept {
-        if constexpr (std::derived_from<T, GCObject>) {
-            return ptr_ ? static_cast<GCObject*>(ptr_)->refCount() : 0;
-        } else {
-            return ptr_ ? 1 : 0;  // Non-GC objects always have count 1 if they exist
-        }
-    }
-
-    template <typename T>
-    bool GCPtr<T>::unique() const noexcept {
-        return use_count() == 1;
-    }
-
-    template <typename T>
-    WeakGCPtr<T> GCPtr<T>::weak() const noexcept {
-        return WeakGCPtr<T>(*this);
-    }
-
-    // WeakGCPtr template method implementations
-    template <typename T>
-    WeakGCPtr<T>::WeakGCPtr(const GCPtr<T>& ptr) noexcept : ptr_(ptr.get()) {}
-
-    template <typename T>
-    template <typename U>
-        requires std::convertible_to<U*, T*>
-    WeakGCPtr<T>::WeakGCPtr(const GCPtr<U>& ptr) noexcept : ptr_(ptr.get()) {}
-
-    template <typename T>
-    GCPtr<T> WeakGCPtr<T>::lock() const noexcept {
-        if constexpr (std::derived_from<T, GCObject>) {
-            // TODO For now, we can't safely check if the object is still alive
-            // without a proper weak reference system that tracks object lifetime
-            // Return nullptr to indicate the object is no longer available
-            return GCPtr<T>(nullptr);
-        } else {
-            // For non-GC objects, just return the pointer if it exists
-            if (ptr_) {
-                return GCPtr<T>(ptr_);
-            }
-        }
-        return GCPtr<T>(nullptr);
-    }
-
-    template <typename T>
-    bool WeakGCPtr<T>::expired() const noexcept {
-        if constexpr (std::derived_from<T, GCObject>) {
-            // TODO For now, we'll assume the object is expired if we don't have a pointer
-            // In a real implementation, we'd need a proper weak reference system
-            // that tracks object lifetime
-            return !ptr_;
-        } else {
-            return !ptr_;  // Non-GC objects are never "expired" in the GC sense
-        }
-    }
-
-    template <typename T>
-    void WeakGCPtr<T>::reset() noexcept {
-        ptr_ = nullptr;
-    }
-
-    template <typename T>
-    bool WeakGCPtr<T>::operator==(const WeakGCPtr& other) const noexcept {
-        return ptr_ == other.ptr_;
-    }
-
-    // GCRoot template method implementations
-    template <typename T>
-    GCRoot<T>::GCRoot(GCPtr<T> ptr, GarbageCollector& gc) : ptr_(std::move(ptr)), gc_(gc) {
-        if (ptr_) {
-            gc_.add_root(ptr_.get());
-        }
-    }
-
-    template <typename T>
-    GCRoot<T>::~GCRoot() {
-        if (ptr_) {
-            gc_.remove_root(ptr_.get());
-        }
-    }
-
-    template <typename T>
-    GCRoot<T>::GCRoot(GCRoot&& other) noexcept : ptr_(std::move(other.ptr_)), gc_(other.gc_) {
-        other.ptr_.reset();
-    }
-
-    template <typename T>
-    GCRoot<T>& GCRoot<T>::operator=(GCRoot&& other) noexcept {
-        if (this != &other) {
-            if (ptr_) {
-                gc_.remove_root(ptr_.get());
-            }
-            ptr_ = std::move(other.ptr_);
-            other.ptr_.reset();
-        }
-        return *this;
-    }
-
-    template <typename T>
-    T& GCRoot<T>::operator*() const noexcept {
-        return *ptr_;
-    }
-
-    template <typename T>
-    T* GCRoot<T>::operator->() const noexcept {
-        return ptr_.get();
-    }
-
-    template <typename T>
-    T* GCRoot<T>::get() const noexcept {
-        return ptr_.get();
-    }
-
-    template <typename T>
-    const GCPtr<T>& GCRoot<T>::ptr() const noexcept {
-        return ptr_;
-    }
-
-    // Factory function implementation
-    template <typename T, typename... Args>
-    GCPtr<T> makeGCObject(Args&&... args) {
-        static_assert(std::derived_from<T, GCObject>, "T must derive from GCObject");
-
-        T* obj = new T(std::forward<Args>(args)...);
-        detail::registerWithGC(static_cast<GCObject*>(obj));
-        return GCPtr<T>(obj);
-    }
 
 }  // namespace rangelua::runtime
