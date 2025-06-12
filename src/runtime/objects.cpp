@@ -251,18 +251,17 @@ namespace rangelua::runtime {
     }
 
     // Upvalue implementation
-    Upvalue::Upvalue(Value* stack_location)
-        : GCObject(LuaType::UPVALUE), stackLocation_(stack_location), isOpen_(true) {}
+    Upvalue::Upvalue(Value* stack_location) : GCObject(LuaType::UPVALUE), isOpen_(true) {
+        this->stackLocation_ = stack_location;
+    }
 
-    Upvalue::Upvalue(Value value)
-        : GCObject(LuaType::UPVALUE), closedValue_(std::move(value)), isOpen_(false) {}
+    Upvalue::Upvalue(Value value) : GCObject(LuaType::UPVALUE), isOpen_(false) {
+        this->stackLocation_ = nullptr;
+        new (&closedValue_) Value(std::move(value));
+    }
 
     Upvalue::~Upvalue() {
-        if (isOpen_) {
-            // For open upvalues, we don't own the stack location
-            stackLocation_ = nullptr;
-        } else {
-            // For closed upvalues, explicitly destroy the value
+        if (!isOpen_) {
             closedValue_.~Value();
         }
     }
@@ -295,13 +294,11 @@ namespace rangelua::runtime {
 
     void Upvalue::close() {
         if (isOpen_ && stackLocation_) {
-            // Copy the stack value to local storage
-            Value stack_value = *stackLocation_;
-            stackLocation_ = nullptr;
+            Value value = *stackLocation_;
+            // The original stack slot is no longer our concern.
+            // We transition from open to closed.
             isOpen_ = false;
-
-            // Use placement new to initialize the closed value
-            new (&closedValue_) Value(std::move(stack_value));
+            new (&closedValue_) Value(std::move(value));
         }
     }
 
@@ -329,8 +326,11 @@ namespace rangelua::runtime {
     }
 
     // Function implementation
-    Function::Function(CFunction func)
-        : GCObject(LuaType::FUNCTION), type_(Type::C_FUNCTION), cFunction_(std::move(func)) {
+    Function::Function(CFunction func, IVMContext* vm_context)
+        : GCObject(LuaType::FUNCTION),
+          type_(Type::C_FUNCTION),
+          cFunction_(std::move(func)),
+          vm_context_(vm_context) {
     }
 
     Function::Function(std::vector<Instruction> bytecode, Size paramCount)
@@ -449,9 +449,11 @@ namespace rangelua::runtime {
         }
     }
 
-    std::vector<Value> Function::call(const std::vector<Value>& args) const {
+    std::vector<Value> Function::call(IVMContext* vm, const std::vector<Value>& args) const {
         if (isCFunction()) {
-            return cFunction_(args);
+            // Use the context bound at creation time if available, otherwise use the calling VM's context.
+            IVMContext* context_to_use = vm_context_ ? vm_context_ : vm;
+            return cFunction_(context_to_use, args);
         }
 
         // For Lua functions, we need VM integration

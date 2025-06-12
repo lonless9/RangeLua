@@ -60,6 +60,7 @@ namespace rangelua::runtime {
 
         // Create a new function from the prototype
         auto function = makeGCObject<Function>(prototype.instructions, prototype.parameter_count);
+        function->setSource(current_function->source_name);  // Inherit source name from parent
         function->makeClosure();  // Mark as closure
 
         // Copy vararg flag from prototype

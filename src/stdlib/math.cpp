@@ -23,7 +23,8 @@ namespace rangelua::stdlib::math {
         std::uniform_real_distribution<double> dis(0.0, 1.0);
     }
 
-    std::vector<runtime::Value> abs(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> abs(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -37,7 +38,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::abs(value))};
     }
 
-    std::vector<runtime::Value> acos(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> acos(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -51,7 +53,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::acos(value))};
     }
 
-    std::vector<runtime::Value> asin(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> asin(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -65,7 +68,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::asin(value))};
     }
 
-    std::vector<runtime::Value> atan(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> atan(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -88,7 +92,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::atan(y))};
     }
 
-    std::vector<runtime::Value> ceil(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> ceil(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -102,7 +107,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::ceil(value))};
     }
 
-    std::vector<runtime::Value> cos(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> cos(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -116,7 +122,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::cos(value))};
     }
 
-    std::vector<runtime::Value> deg(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> deg(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -131,7 +138,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(degrees)};
     }
 
-    std::vector<runtime::Value> exp(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> exp(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -145,7 +153,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::exp(value))};
     }
 
-    std::vector<runtime::Value> floor(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> floor(runtime::IVMContext* vm,
+                                    const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -159,7 +168,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::floor(value))};
     }
 
-    std::vector<runtime::Value> fmod(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> fmod(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.size() < 2 || !args[0].is_number() || !args[1].is_number()) {
             return {};
         }
@@ -176,7 +186,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::fmod(x, y))};
     }
 
-    std::vector<runtime::Value> log(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> log(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -199,7 +210,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::log(value))};
     }
 
-    std::vector<runtime::Value> max(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> max(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {};
         }
@@ -226,7 +238,8 @@ namespace rangelua::stdlib::math {
         return {};
     }
 
-    std::vector<runtime::Value> min(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> min(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {};
         }
@@ -253,7 +266,8 @@ namespace rangelua::stdlib::math {
         return {};
     }
 
-    std::vector<runtime::Value> modf(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> modf(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -270,7 +284,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(integral_part), runtime::Value(fractional_part)};
     }
 
-    std::vector<runtime::Value> rad(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> rad(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -285,7 +300,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(radians)};
     }
 
-    std::vector<runtime::Value> random(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> random(runtime::IVMContext* vm,
+                                     const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             // Return random float between 0 and 1
             return {runtime::Value(dis(gen))};
@@ -320,7 +336,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(dis(gen))};
     }
 
-    std::vector<runtime::Value> randomseed(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> randomseed(runtime::IVMContext* vm,
+                                         const std::vector<runtime::Value>& args) {
         if (!args.empty() && args[0].is_number()) {
             auto num_result = args[0].to_number();
             if (std::holds_alternative<double>(num_result)) {
@@ -331,7 +348,8 @@ namespace rangelua::stdlib::math {
         return {};
     }
 
-    std::vector<runtime::Value> sin(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> sin(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -345,7 +363,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::sin(value))};
     }
 
-    std::vector<runtime::Value> sqrt(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> sqrt(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -359,7 +378,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::sqrt(value))};
     }
 
-    std::vector<runtime::Value> tan(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> tan(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {};
         }
@@ -373,7 +393,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(std::tan(value))};
     }
 
-    std::vector<runtime::Value> tointeger(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> tointeger(runtime::IVMContext* vm,
+                                        const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {runtime::Value()};  // nil
         }
@@ -393,7 +414,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value()};  // nil
     }
 
-    std::vector<runtime::Value> type(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> type(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_number()) {
             return {runtime::Value()};  // nil
         }
@@ -413,7 +435,8 @@ namespace rangelua::stdlib::math {
         }
     }
 
-    std::vector<runtime::Value> ult(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> ult(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args) {
         if (args.size() < 2 || !args[0].is_number() || !args[1].is_number()) {
             return {runtime::Value(false)};
         }
@@ -432,7 +455,8 @@ namespace rangelua::stdlib::math {
         return {runtime::Value(m < n)};
     }
 
-    void register_functions(const runtime::GCPtr<runtime::Table>& globals) {
+    void register_functions(runtime::IVMContext* vm,
+                              const runtime::GCPtr<runtime::Table>& globals) {
         // Create math table
         auto math_table = runtime::value_factory::table();
         auto math_table_ptr = math_table.to_table();
@@ -441,29 +465,31 @@ namespace rangelua::stdlib::math {
             auto table = std::get<runtime::GCPtr<runtime::Table>>(math_table_ptr);
 
             // Register math library functions
-            table->set(runtime::Value("abs"), runtime::value_factory::function(abs));
-            table->set(runtime::Value("acos"), runtime::value_factory::function(acos));
-            table->set(runtime::Value("asin"), runtime::value_factory::function(asin));
-            table->set(runtime::Value("atan"), runtime::value_factory::function(atan));
-            table->set(runtime::Value("ceil"), runtime::value_factory::function(ceil));
-            table->set(runtime::Value("cos"), runtime::value_factory::function(cos));
-            table->set(runtime::Value("deg"), runtime::value_factory::function(deg));
-            table->set(runtime::Value("exp"), runtime::value_factory::function(exp));
-            table->set(runtime::Value("floor"), runtime::value_factory::function(floor));
-            table->set(runtime::Value("fmod"), runtime::value_factory::function(fmod));
-            table->set(runtime::Value("log"), runtime::value_factory::function(log));
-            table->set(runtime::Value("max"), runtime::value_factory::function(max));
-            table->set(runtime::Value("min"), runtime::value_factory::function(min));
-            table->set(runtime::Value("modf"), runtime::value_factory::function(modf));
-            table->set(runtime::Value("rad"), runtime::value_factory::function(rad));
-            table->set(runtime::Value("random"), runtime::value_factory::function(random));
-            table->set(runtime::Value("randomseed"), runtime::value_factory::function(randomseed));
-            table->set(runtime::Value("sin"), runtime::value_factory::function(sin));
-            table->set(runtime::Value("sqrt"), runtime::value_factory::function(sqrt));
-            table->set(runtime::Value("tan"), runtime::value_factory::function(tan));
-            table->set(runtime::Value("tointeger"), runtime::value_factory::function(tointeger));
-            table->set(runtime::Value("type"), runtime::value_factory::function(type));
-            table->set(runtime::Value("ult"), runtime::value_factory::function(ult));
+            table->set(runtime::Value("abs"), runtime::value_factory::function(abs, vm));
+            table->set(runtime::Value("acos"), runtime::value_factory::function(acos, vm));
+            table->set(runtime::Value("asin"), runtime::value_factory::function(asin, vm));
+            table->set(runtime::Value("atan"), runtime::value_factory::function(atan, vm));
+            table->set(runtime::Value("ceil"), runtime::value_factory::function(ceil, vm));
+            table->set(runtime::Value("cos"), runtime::value_factory::function(cos, vm));
+            table->set(runtime::Value("deg"), runtime::value_factory::function(deg, vm));
+            table->set(runtime::Value("exp"), runtime::value_factory::function(exp, vm));
+            table->set(runtime::Value("floor"), runtime::value_factory::function(floor, vm));
+            table->set(runtime::Value("fmod"), runtime::value_factory::function(fmod, vm));
+            table->set(runtime::Value("log"), runtime::value_factory::function(log, vm));
+            table->set(runtime::Value("max"), runtime::value_factory::function(max, vm));
+            table->set(runtime::Value("min"), runtime::value_factory::function(min, vm));
+            table->set(runtime::Value("modf"), runtime::value_factory::function(modf, vm));
+            table->set(runtime::Value("rad"), runtime::value_factory::function(rad, vm));
+            table->set(runtime::Value("random"), runtime::value_factory::function(random, vm));
+            table->set(runtime::Value("randomseed"),
+                       runtime::value_factory::function(randomseed, vm));
+            table->set(runtime::Value("sin"), runtime::value_factory::function(sin, vm));
+            table->set(runtime::Value("sqrt"), runtime::value_factory::function(sqrt, vm));
+            table->set(runtime::Value("tan"), runtime::value_factory::function(tan, vm));
+            table->set(runtime::Value("tointeger"),
+                       runtime::value_factory::function(tointeger, vm));
+            table->set(runtime::Value("type"), runtime::value_factory::function(type, vm));
+            table->set(runtime::Value("ult"), runtime::value_factory::function(ult, vm));
 
             // Add mathematical constants
             table->set(runtime::Value("pi"), runtime::Value(M_PI));

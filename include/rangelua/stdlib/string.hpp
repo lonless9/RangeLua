@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../runtime/value.hpp"
+#include "../runtime/vm/instruction_strategy.hpp"
 
 namespace rangelua::stdlib::string {
 
@@ -23,7 +24,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing string and optional start/end positions
      * @return Vector containing numeric codes
      */
-    std::vector<runtime::Value> byte(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> byte(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.char function implementation
@@ -33,7 +34,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing numeric codes
      * @return Vector containing the resulting string
      */
-    std::vector<runtime::Value> char_(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> char_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.find function implementation
@@ -43,7 +44,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing string, pattern, and optional start position
      * @return Vector containing start and end positions or nil
      */
-    std::vector<runtime::Value> find(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> find(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.format function implementation
@@ -53,7 +54,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing format string and arguments
      * @return Vector containing formatted string
      */
-    std::vector<runtime::Value> format(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> format(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.gsub function implementation
@@ -63,7 +64,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing string, pattern, replacement, and optional count
      * @return Vector containing modified string and number of substitutions
      */
-    std::vector<runtime::Value> gsub(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> gsub(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.len function implementation
@@ -73,7 +74,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing the string
      * @return Vector containing the length
      */
-    std::vector<runtime::Value> len(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> len(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.lower function implementation
@@ -83,7 +84,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing the string
      * @return Vector containing the lowercase string
      */
-    std::vector<runtime::Value> lower(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> lower(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.match function implementation
@@ -93,7 +94,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing string, pattern, and optional start position
      * @return Vector containing captured values or nil
      */
-    std::vector<runtime::Value> match(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> match(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.rep function implementation
@@ -103,7 +104,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing string, count, and optional separator
      * @return Vector containing repeated string
      */
-    std::vector<runtime::Value> rep(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> rep(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.reverse function implementation
@@ -113,7 +114,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing the string
      * @return Vector containing reversed string
      */
-    std::vector<runtime::Value> reverse(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> reverse(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.sub function implementation
@@ -123,7 +124,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing string, start, and optional end position
      * @return Vector containing substring
      */
-    std::vector<runtime::Value> sub(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> sub(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua string.upper function implementation
@@ -133,7 +134,7 @@ namespace rangelua::stdlib::string {
      * @param args Vector containing the string
      * @return Vector containing the uppercase string
      */
-    std::vector<runtime::Value> upper(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> upper(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Register string library functions in the given global table
@@ -143,6 +144,6 @@ namespace rangelua::stdlib::string {
      *
      * @param globals The global environment table to register the string library in
      */
-    void register_functions(const runtime::GCPtr<runtime::Table>& globals);
+    void register_functions(runtime::IVMContext* vm, const runtime::GCPtr<runtime::Table>& globals);
 
 }  // namespace rangelua::stdlib::string

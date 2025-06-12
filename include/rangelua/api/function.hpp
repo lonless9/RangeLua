@@ -18,6 +18,8 @@
 
 namespace rangelua::api {
 
+    class State;
+
     /**
      * @brief High-level Function wrapper with comprehensive API
      *
@@ -35,16 +37,17 @@ namespace rangelua::api {
         };
 
         // Construction and conversion
-        explicit Function(runtime::Value value);
-        explicit Function(runtime::GCPtr<runtime::Function> function);
+        explicit Function(State& state, runtime::Value value);
+        explicit Function(State& state, runtime::GCPtr<runtime::Function> function);
         explicit Function(
-            std::function<std::vector<runtime::Value>(const std::vector<runtime::Value>&)> fn);
+            State& state,
+            std::function<std::vector<runtime::Value>(runtime::IVMContext*, const std::vector<runtime::Value>&)> fn);
 
         // Copy and move semantics
-        Function(const Function& other) = default;
-        Function& operator=(const Function& other) = default;
-        Function(Function&& other) noexcept = default;
-        Function& operator=(Function&& other) noexcept = default;
+        Function(const Function& other);
+        Function& operator=(const Function& other);
+        Function(Function&& other) noexcept;
+        Function& operator=(Function&& other) noexcept;
 
         ~Function() = default;
 
@@ -107,6 +110,7 @@ namespace rangelua::api {
         [[nodiscard]] Result<std::vector<runtime::Value>> operator()(Args&&... args) const;
 
     private:
+        State& state_;
         runtime::GCPtr<runtime::Function> function_;
 
         void ensure_valid() const;
@@ -128,19 +132,38 @@ namespace rangelua::api {
          * @brief Create function from C++ callable
          */
         template <typename Callable>
-        Function from_callable(Callable&& callable);
+        Function from_callable(State& state, Callable&& callable) {
+            auto wrapper = [callable = std::forward<Callable>(callable)](
+                               [[maybe_unused]] runtime::IVMContext* context,
+                               [[maybe_unused]] const std::vector<runtime::Value>& args) -> std::vector<runtime::Value> {
+                if constexpr (std::is_invocable_v<Callable>) {
+                    if constexpr (std::same_as<std::invoke_result_t<Callable>, void>) {
+                        callable();
+                        return {};
+                    } else {
+                        auto result = callable();
+                        return {runtime::Value(result)};
+                    }
+                } else {
+                    return {};
+                }
+            };
+            return Function(state, wrapper);
+        }
 
         /**
          * @brief Create function from C function pointer
          */
         Function from_c_function(
-            std::function<std::vector<runtime::Value>(const std::vector<runtime::Value>&)> fn);
+            std::function<std::vector<runtime::Value>(runtime::IVMContext*, const std::vector<runtime::Value>&)> fn);
 
         /**
          * @brief Create function from lambda with automatic argument conversion
          */
         template <typename Lambda>
-        Function from_lambda(Lambda&& lambda);
+        Function from_lambda(State& state, Lambda&& lambda) {
+            return from_callable(state, std::forward<Lambda>(lambda));
+        }
 
     }  // namespace function_factory
 

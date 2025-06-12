@@ -44,7 +44,7 @@ namespace rangelua::frontend {
             }
 
             PARSER_LOG_INFO("Completed parsing {} statements", statements.size());
-            return ASTBuilder::make_program(std::move(statements), SourceLocation{});
+            return ASTBuilder::make_program(std::move(statements), SourceLocation{lexer_.filename(), 1, 1});
         }
 
         Result<ExpressionPtr> parse_expression() {

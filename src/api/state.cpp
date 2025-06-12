@@ -29,7 +29,7 @@ namespace rangelua::api {
         }
     }  // namespace
 
-    State::State() : vm_() {
+    State::State() : vm_(std::make_unique<runtime::VirtualMachine>()) {
         logger()->info("Initializing RangeLua state");
 
         // Initialize global environment
@@ -38,7 +38,8 @@ namespace rangelua::api {
         logger()->debug("State initialization complete");
     }
 
-    State::State(const StateConfig& config) : vm_(config.vm_config), config_(config) {
+    State::State(const StateConfig& config)
+        : vm_(std::make_unique<runtime::VirtualMachine>(config.vm_config)), config_(config) {
         logger()->info("Initializing RangeLua state with custom configuration");
 
         // Initialize global environment
@@ -93,7 +94,7 @@ namespace rangelua::api {
 
             // Execute
             logger()->debug("Executing bytecode function: {}", function.name);
-            auto result = vm_.execute(function);
+            auto result = vm_->execute(function);
 
             if (is_success(result)) {
                 logger()->debug("Execution completed successfully");
@@ -132,41 +133,41 @@ namespace rangelua::api {
     }
 
     Size State::stack_size() const noexcept {
-        return vm_.stack_size();
+        return vm_->stack_size();
     }
 
     void State::push(runtime::Value value) {
-        vm_.push(std::move(value));
+        vm_->push(std::move(value));
     }
 
     runtime::Value State::pop() {
-        return vm_.pop();
+        return vm_->pop();
     }
 
     const runtime::Value& State::top() const {
-        return vm_.top();
+        return vm_->top();
     }
 
     const runtime::Value& State::get(Size index) const {
-        return vm_.get_stack(index);
+        return vm_->get_stack(index);
     }
 
     void State::set(Size index, runtime::Value value) {
-        vm_.set_stack(index, std::move(value));
+        vm_->set_stack(index, std::move(value));
     }
 
     runtime::Value State::get_global(const String& name) const {
-        return vm_.get_global(name);
+        return vm_->get_global(name);
     }
 
     void State::set_global(const String& name, runtime::Value value) {
         logger()->debug("Setting global variable: {}", name);
-        vm_.set_global(name, std::move(value));
+        vm_->set_global(name, std::move(value));
     }
 
     bool State::has_global(const String& name) const {
         // Check if global exists by getting it and checking if it's nil
-        auto value = vm_.get_global(name);
+        auto value = vm_->get_global(name);
         return !value.is_nil();
     }
 
@@ -174,17 +175,17 @@ namespace rangelua::api {
         logger()->info("Clearing all global variables");
         // VM reset will clear globals, but we need a more targeted approach
         // For now, we'll reset the entire VM state
-        vm_.reset();
+        vm_->reset();
         initialize_globals();
     }
 
     runtime::VMState State::vm_state() const noexcept {
-        return vm_.state();
+        return vm_->state();
     }
 
     void State::reset() {
         logger()->info("Resetting state");
-        vm_.reset();
+        vm_->reset();
         initialize_globals();
     }
 
@@ -196,7 +197,7 @@ namespace rangelua::api {
 
         // Set up _G to point to the global table itself (Lua convention)
         // This creates a self-reference in the global table
-        auto global_table = vm_.get_global_table();
+        auto global_table = vm_->get_global_table();
         if (global_table) {
             set_global("_G", runtime::Value(global_table));
             logger()->debug("_G self-reference established");
@@ -211,36 +212,19 @@ namespace rangelua::api {
     void State::setup_standard_library() {
         logger()->debug("Setting up standard library");
 
-        // Register basic library functions directly using set_global
-        set_global("print", runtime::value_factory::function(stdlib::basic::print));
-        set_global("type", runtime::value_factory::function(stdlib::basic::type));
-        set_global("ipairs", runtime::value_factory::function(stdlib::basic::ipairs));
-        set_global("pairs", runtime::value_factory::function(stdlib::basic::pairs));
-        set_global("next", runtime::value_factory::function(stdlib::basic::next));
-        set_global("tostring", runtime::value_factory::function(stdlib::basic::tostring));
-        set_global("tonumber", runtime::value_factory::function(stdlib::basic::tonumber));
-        set_global("getmetatable", runtime::value_factory::function(stdlib::basic::getmetatable));
-        set_global("setmetatable", runtime::value_factory::function(stdlib::basic::setmetatable));
-        set_global("rawget", runtime::value_factory::function(stdlib::basic::rawget));
-        set_global("rawset", runtime::value_factory::function(stdlib::basic::rawset));
-        set_global("rawequal", runtime::value_factory::function(stdlib::basic::rawequal));
-        set_global("rawlen", runtime::value_factory::function(stdlib::basic::rawlen));
-        set_global("select", runtime::value_factory::function(stdlib::basic::select));
-        set_global("error", runtime::value_factory::function(stdlib::basic::error));
-        set_global("assert", runtime::value_factory::function(stdlib::basic::assert_));
-
-        logger()->debug("Basic library functions registered");
-
         // Register standard library modules
-        auto global_table = vm_.get_global_table();
+        auto global_table = vm_->get_global_table();
         if (global_table) {
-            stdlib::string::register_functions(global_table);
+            stdlib::basic::register_functions(this, global_table);
+            logger()->debug("Basic library registered");
+
+            stdlib::string::register_functions(this, global_table);
             logger()->debug("String library registered");
 
-            stdlib::math::register_functions(global_table);
+            stdlib::math::register_functions(this, global_table);
             logger()->debug("Math library registered");
 
-            stdlib::table::register_functions(global_table);
+            stdlib::table::register_functions(this, global_table);
             logger()->debug("Table library registered");
         }
 
@@ -252,7 +236,7 @@ namespace rangelua::api {
 
         // Step 1: Break circular references in global table
         // Remove _G self-reference to break the cycle
-        auto global_table = vm_.get_global_table();
+        auto global_table = vm_->get_global_table();
         if (global_table) {
             logger()->debug("Breaking _G circular reference");
             runtime::Value key("_G");
@@ -283,9 +267,90 @@ namespace rangelua::api {
 
         // Step 3: Reset VM state to clean up environment and registry
         logger()->debug("Resetting VM state");
-        vm_.reset();
+        vm_->reset();
 
         logger()->debug("State cleanup completed");
+    }
+
+    // IVMContext implementation
+    runtime::Value& State::stack_at(Register reg) {
+        return vm_->stack_at(reg);
+    }
+
+    const runtime::Value& State::stack_at(Register reg) const {
+        return vm_->stack_at(reg);
+    }
+
+    Size State::instruction_pointer() const noexcept {
+        return vm_->instruction_pointer();
+    }
+
+    void State::set_instruction_pointer(Size ip) noexcept {
+        vm_->set_instruction_pointer(ip);
+    }
+
+    void State::adjust_instruction_pointer(std::int32_t offset) noexcept {
+        vm_->adjust_instruction_pointer(offset);
+    }
+
+    const backend::BytecodeFunction* State::current_function() const noexcept {
+        return vm_->current_function();
+    }
+
+    Size State::call_depth() const noexcept {
+        return vm_->call_depth();
+    }
+
+    runtime::Value State::get_constant(std::uint16_t index) const {
+        return vm_->get_constant(index);
+    }
+
+    Status State::call_function(const runtime::Value& function,
+                                const std::vector<runtime::Value>& args,
+                                std::vector<runtime::Value>& results) {
+        return vm_->call_function(function, args, results);
+    }
+
+    Result<std::vector<runtime::Value>> State::pcall(const runtime::Value& function,
+                                                     const std::vector<runtime::Value>& args) {
+        return vm_->pcall(function, args);
+    }
+
+    Result<std::vector<runtime::Value>> State::xpcall(const runtime::Value& function,
+                                                      const runtime::Value& msgh,
+                                                      const std::vector<runtime::Value>& args) {
+        return vm_->xpcall(function, msgh, args);
+    }
+
+    Status State::setup_call_frame(const backend::BytecodeFunction& function, Size arg_count) {
+        return vm_->setup_call_frame(function, arg_count);
+    }
+
+    Status State::return_from_function(Size result_count) {
+        return vm_->return_from_function(result_count);
+    }
+
+    void State::set_error(ErrorCode code) {
+        vm_->set_error(code);
+    }
+
+void State::set_runtime_error(const String& message) {
+        vm_->set_runtime_error(message);
+    }
+    void State::trigger_runtime_error(const String& message) {
+        vm_->trigger_runtime_error(message);
+    }
+
+    runtime::RuntimeMemoryManager& State::memory_manager() noexcept {
+        return vm_->memory_manager();
+    }
+
+    runtime::Value State::get_upvalue(UpvalueIndex index) const {
+        return vm_->get_upvalue(index);
+    }
+
+    void State::set_upvalue(UpvalueIndex index, const runtime::Value& value) {
+        vm_->set_upvalue(index, value);
     }
 
 }  // namespace rangelua::api

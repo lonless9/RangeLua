@@ -14,6 +14,7 @@
 
 #include "../core/types.hpp"
 #include "../runtime/value.hpp"
+#include "../runtime/vm/instruction_strategy.hpp"
 
 namespace rangelua::stdlib {
 
@@ -34,7 +35,7 @@ namespace rangelua::stdlib {
          * @param args Vector of arguments to print
          * @return Empty vector (print returns no values)
          */
-        std::vector<runtime::Value> print(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> print(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua type function implementation
@@ -44,7 +45,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the value to check (only first argument used)
          * @return Vector containing the type name as a string
          */
-        std::vector<runtime::Value> type(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> type(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua ipairs function implementation
@@ -55,7 +56,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the table to iterate (only first argument used)
          * @return Vector containing iterator function, table, and initial index
          */
-        std::vector<runtime::Value> ipairs(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> ipairs(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua pairs function implementation
@@ -66,7 +67,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the table to iterate (only first argument used)
          * @return Vector containing iterator function, table, and nil
          */
-        std::vector<runtime::Value> pairs(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> pairs(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Iterator function for ipairs
@@ -76,7 +77,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing table and current index
          * @return Vector containing next index and value, or just index if end reached
          */
-        std::vector<runtime::Value> ipairsaux(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> ipairsaux(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Iterator function for pairs
@@ -86,7 +87,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing table and current key
          * @return Vector containing next key and value, or empty if end reached
          */
-        std::vector<runtime::Value> next(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> next(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua tostring function implementation
@@ -96,7 +97,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the value to convert
          * @return Vector containing the string representation
          */
-        std::vector<runtime::Value> tostring(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> tostring(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua tonumber function implementation
@@ -106,7 +107,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the value to convert and optional base
          * @return Vector containing the number or nil if conversion failed
          */
-        std::vector<runtime::Value> tonumber(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> tonumber(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua getmetatable function implementation
@@ -116,7 +117,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the value
          * @return Vector containing the metatable or nil
          */
-        std::vector<runtime::Value> getmetatable(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> getmetatable(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua setmetatable function implementation
@@ -126,7 +127,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the table and metatable
          * @return Vector containing the table
          */
-        std::vector<runtime::Value> setmetatable(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> setmetatable(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua rawget function implementation
@@ -136,7 +137,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the table and key
          * @return Vector containing the value
          */
-        std::vector<runtime::Value> rawget(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> rawget(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua rawset function implementation
@@ -146,7 +147,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the table, key, and value
          * @return Vector containing the table
          */
-        std::vector<runtime::Value> rawset(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> rawset(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua rawequal function implementation
@@ -156,7 +157,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing two values to compare
          * @return Vector containing boolean result
          */
-        std::vector<runtime::Value> rawequal(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> rawequal(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua rawlen function implementation
@@ -166,7 +167,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing the value
          * @return Vector containing the length
          */
-        std::vector<runtime::Value> rawlen(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> rawlen(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua select function implementation
@@ -176,7 +177,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing index and arguments
          * @return Vector containing selected arguments
          */
-        std::vector<runtime::Value> select(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> select(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua error function implementation
@@ -186,7 +187,7 @@ namespace rangelua::stdlib {
          * @param args Vector containing error message and optional level
          * @return Never returns (throws exception)
          */
-        std::vector<runtime::Value> error(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> error(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Lua assert function implementation
@@ -196,7 +197,27 @@ namespace rangelua::stdlib {
          * @param args Vector containing condition and optional message
          * @return Vector containing the first argument if true
          */
-        std::vector<runtime::Value> assert_(const std::vector<runtime::Value>& args);
+        std::vector<runtime::Value> assert_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua pcall function implementation
+         *
+         * Calls a function in protected mode.
+         *
+         * @param args Vector containing the function and its arguments
+         * @return Vector containing success status and results or error message
+         */
+        std::vector<runtime::Value> pcall_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
+
+        /**
+         * @brief Lua xpcall function implementation
+         *
+         * Calls a function in protected mode with a message handler.
+         *
+         * @param args Vector containing the function, message handler, and arguments
+         * @return Vector containing success status and results or error message
+         */
+        std::vector<runtime::Value> xpcall_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
         /**
          * @brief Register basic library functions in the given global table
@@ -206,7 +227,7 @@ namespace rangelua::stdlib {
          *
          * @param globals The global environment table to register functions in
          */
-        void register_functions(const runtime::GCPtr<runtime::Table>& globals);
+        void register_functions(runtime::IVMContext* vm, const runtime::GCPtr<runtime::Table>& globals);
 
     }  // namespace basic
 

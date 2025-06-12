@@ -25,6 +25,8 @@
 
 namespace rangelua::runtime {
 
+    class IVMContext;  // Forward declaration
+
     /**
      * @brief Lua table implementation
      *
@@ -160,10 +162,10 @@ namespace rangelua::runtime {
 
     private:
         union {
-            Value* stackLocation_;  // For open upvalues
-            Value closedValue_;     // For closed upvalues
+            Value* stackLocation_;
+            Value closedValue_;
         };
-        bool isOpen_ = true;
+        bool isOpen_;
     };
 
     /**
@@ -181,10 +183,11 @@ namespace rangelua::runtime {
             CLOSURE          // Function with upvalues
         };
 
-        using CFunction = std::function<std::vector<Value>(const std::vector<Value>&)>;
+        using CFunction =
+            std::function<std::vector<Value>(IVMContext*, const std::vector<Value>&)>;
 
         // Constructors
-        explicit Function(CFunction func);
+        explicit Function(CFunction func, IVMContext* vm_context = nullptr);
 
         explicit Function(std::vector<Instruction> bytecode, Size paramCount = 0);
 
@@ -224,11 +227,15 @@ namespace rangelua::runtime {
         void setUpvalueValue(Size index, const Value& value);
 
         // Call interface
-        [[nodiscard]] std::vector<Value> call(const std::vector<Value>& args) const;
+        [[nodiscard]] std::vector<Value>
+        call(IVMContext* vm, const std::vector<Value>& args) const;
 
         // GCObject interface
         void traverse(AdvancedGarbageCollector& gc) override;
         [[nodiscard]] Size objectSize() const noexcept override;
+
+        void setSource(String source) { source_ = std::move(source); }
+        const String& getSource() const { return source_; }
 
     private:
         Type type_;
@@ -237,6 +244,7 @@ namespace rangelua::runtime {
 
         // C function data
         CFunction cFunction_;
+        IVMContext* vm_context_ = nullptr;  // VM context for C functions
 
         // Lua function data
         std::vector<Instruction> bytecode_;

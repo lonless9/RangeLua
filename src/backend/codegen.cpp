@@ -815,6 +815,7 @@ namespace rangelua::backend {
         // Reset state for new compilation
         register_allocator_.reset();
         current_expression_.reset();
+        emitter_.set_source_name(ast.location().filename_);
 
         // Generate code for the program
         ast.accept(*this);
@@ -868,6 +869,7 @@ namespace rangelua::backend {
 
     Status CodeGenerator::generate_statement(const frontend::Statement& stmt) {
         CODEGEN_LOG_DEBUG("Generating statement code");
+        emitter_.add_line_info(stmt.location().line_);
 
         // Save current expression state
         Optional<ExpressionDesc> saved_expr = current_expression_;

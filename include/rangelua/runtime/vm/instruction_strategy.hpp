@@ -55,12 +55,18 @@ namespace rangelua::runtime {
         // Function calls
         virtual Status call_function(const Value& function, const std::vector<Value>& args,
                                    std::vector<Value>& results) = 0;
+        virtual Result<std::vector<Value>> pcall(const Value& function,
+                                                 const std::vector<Value>& args) = 0;
+        virtual Result<std::vector<Value>> xpcall(const Value& function,
+                                                  const Value& msgh,
+                                                  const std::vector<Value>& args) = 0;
         virtual Status setup_call_frame(const backend::BytecodeFunction& function, Size arg_count) = 0;
         virtual Status return_from_function(Size result_count) = 0;
 
         // Error handling
         virtual void set_error(ErrorCode code) = 0;
         virtual void set_runtime_error(const String& message) = 0;
+        virtual void trigger_runtime_error(const String& message) = 0;
 
         // Memory management
         virtual RuntimeMemoryManager& memory_manager() noexcept = 0;
@@ -68,6 +74,8 @@ namespace rangelua::runtime {
         // Upvalue operations (for future implementation)
         [[nodiscard]] virtual Value get_upvalue(UpvalueIndex index) const = 0;
         virtual void set_upvalue(UpvalueIndex index, const Value& value) = 0;
+
+        virtual VirtualMachine& get_vm() = 0;
     };
 
     /**
@@ -116,6 +124,9 @@ namespace rangelua::runtime {
         Status execute(IVMContext& context, Instruction instruction) final {
             try {
                 return execute_impl(context, instruction);
+            } catch (const RuntimeError& e) {
+                // Re-throw runtime errors to be caught by pcall or the main execution loop.
+                throw;
             } catch (const Exception& e) {
                 context.set_error(e.code());
                 return e.code();

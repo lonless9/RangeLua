@@ -605,7 +605,7 @@ namespace rangelua::runtime {
                     if (!metamethod.is_nil()) {
                         if (metamethod.is_function()) {
                             auto call_result =
-                                MetamethodSystem::call_metamethod(metamethod, {*this, key});
+                                MetamethodSystem::call_metamethod(nullptr, metamethod, {*this, key});
                             if (!is_error(call_result)) {
                                 auto results = get_value(call_result);
                                 if (!results.empty()) {
@@ -636,7 +636,7 @@ namespace rangelua::runtime {
                         MetamethodSystem::get_metamethod(table_ptr.get(), Metamethod::NEWINDEX);
                     if (!metamethod.is_nil()) {
                         if (metamethod.is_function()) {
-                            MetamethodSystem::call_metamethod(metamethod, {*this, key, value});
+                            MetamethodSystem::call_metamethod(nullptr, metamethod, {*this, key, value});
                             return;
                         } else if (metamethod.is_table()) {
                             // If __newindex is a table, set the key in that table
@@ -669,8 +669,10 @@ namespace rangelua::runtime {
             return Value(std::move(table_ptr));
         }
 
-        Value function(const std::function<std::vector<Value>(const std::vector<Value>&)>& fn) {
-            auto function_ptr = makeGCObject<Function>(fn);
+        Value function(
+            const std::function<std::vector<Value>(IVMContext*, const std::vector<Value>&)>& fn,
+            IVMContext* vm_context) {
+            auto function_ptr = makeGCObject<Function>(fn, vm_context);
             return Value(std::move(function_ptr));
         }
 
@@ -709,7 +711,7 @@ namespace rangelua::runtime {
 
     // Template method implementations
     template <typename... Args>
-    Result<std::vector<Value>> Value::call(Args&&... args) const {
+    Result<std::vector<Value>> Value::call(IVMContext* vm, Args&&... args) const {
         if (!is_function()) {
             return ErrorCode::TYPE_ERROR;
         }
@@ -736,7 +738,9 @@ namespace rangelua::runtime {
 
         // Call the function
         try {
-            auto result = function_ptr->call(arg_vector);
+            // The `call` on `Value` doesn't have a VM context. The context must be
+            // baked into the C-function `Value` at creation time.
+            auto result = function_ptr->call(vm, arg_vector);
             return result;
         } catch (...) {
             return ErrorCode::RUNTIME_ERROR;
@@ -744,12 +748,19 @@ namespace rangelua::runtime {
     }
 
     // Explicit instantiations for common argument patterns
-    template Result<std::vector<Value>> Value::call() const;
-    template Result<std::vector<Value>> Value::call(const Value&) const;
-    template Result<std::vector<Value>> Value::call(const Value&, const Value&) const;
-    template Result<std::vector<Value>> Value::call(const Value&, const Value&, const Value&) const;
-    template Result<std::vector<Value>> Value::call(const std::vector<Value>&) const;
-    template Result<std::vector<Value>> Value::call(std::vector<Value>&) const;
+    template Result<std::vector<Value>> Value::call<>(IVMContext*) const;
+    template Result<std::vector<Value>> Value::call<const Value&>(IVMContext*, const Value&) const;
+    template Result<std::vector<Value>>
+    Value::call<const Value&, const Value&>(IVMContext*, const Value&, const Value&) const;
+    template Result<std::vector<Value>>
+    Value::call<const Value&, const Value&, const Value&>(IVMContext*,
+                                                          const Value&,
+                                                          const Value&,
+                                                          const Value&) const;
+    template Result<std::vector<Value>>
+    Value::call<const std::vector<Value>&>(IVMContext*, const std::vector<Value>&) const;
+    template Result<std::vector<Value>>
+    Value::call<std::vector<Value>&>(IVMContext*, std::vector<Value>&) const;
 
     // Helper methods implementation
     Result<Value::Number> Value::coerce_to_number(const Value& value) noexcept {

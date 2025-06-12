@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../runtime/value.hpp"
+#include "../runtime/vm/instruction_strategy.hpp"
 
 namespace rangelua::stdlib::table {
 
@@ -23,7 +24,7 @@ namespace rangelua::stdlib::table {
      * @param args Vector containing table, optional separator, start, and end
      * @return Vector containing the concatenated string
      */
-    std::vector<runtime::Value> concat(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> concat(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua table.insert function implementation
@@ -33,7 +34,7 @@ namespace rangelua::stdlib::table {
      * @param args Vector containing table, optional position, and value
      * @return Vector (empty)
      */
-    std::vector<runtime::Value> insert(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> insert(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua table.move function implementation
@@ -43,7 +44,7 @@ namespace rangelua::stdlib::table {
      * @param args Vector containing source table, start, end, destination start, and optional destination table
      * @return Vector containing the destination table
      */
-    std::vector<runtime::Value> move(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> move(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua table.pack function implementation
@@ -53,7 +54,7 @@ namespace rangelua::stdlib::table {
      * @param args Vector containing the arguments to pack
      * @return Vector containing the packed table
      */
-    std::vector<runtime::Value> pack(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> pack(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua table.remove function implementation
@@ -63,7 +64,7 @@ namespace rangelua::stdlib::table {
      * @param args Vector containing table and optional position
      * @return Vector containing the removed element
      */
-    std::vector<runtime::Value> remove(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> remove(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua table.sort function implementation
@@ -73,7 +74,7 @@ namespace rangelua::stdlib::table {
      * @param args Vector containing table and optional comparison function
      * @return Vector (empty)
      */
-    std::vector<runtime::Value> sort(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> sort(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua table.unpack function implementation
@@ -83,7 +84,7 @@ namespace rangelua::stdlib::table {
      * @param args Vector containing table, optional start, and end positions
      * @return Vector containing the unpacked elements
      */
-    std::vector<runtime::Value> unpack(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> unpack(runtime::IVMContext* vm, const std::vector<runtime::Value>& args);
 
     /**
      * @brief Register table library functions in the given global table
@@ -93,6 +94,6 @@ namespace rangelua::stdlib::table {
      *
      * @param globals The global environment table to register the table library in
      */
-    void register_functions(const runtime::GCPtr<runtime::Table>& globals);
+    void register_functions(runtime::IVMContext* vm, const runtime::GCPtr<runtime::Table>& globals);
 
 }  // namespace rangelua::stdlib::table

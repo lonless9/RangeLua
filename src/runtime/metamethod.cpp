@@ -67,7 +67,8 @@ namespace rangelua::runtime {
         return !metamethod.is_nil();
     }
 
-    Result<std::vector<Value>> MetamethodSystem::call_metamethod(const Value& metamethod,
+    Result<std::vector<Value>> MetamethodSystem::call_metamethod(IVMContext* context,
+                                                               const Value& metamethod,
                                                                const std::vector<Value>& args) {
         VM_LOG_DEBUG("call_metamethod: metamethod type = {}, is_function = {}",
                      metamethod.type_name(),
@@ -93,7 +94,7 @@ namespace rangelua::runtime {
         if (function_ptr->isCFunction()) {
             VM_LOG_DEBUG("call_metamethod: calling C function directly");
             try {
-                auto result = function_ptr->call(args);
+                auto result = function_ptr->call(context, args);
                 return result;
             } catch (const std::exception& e) {
                 VM_LOG_ERROR("call_metamethod: C function call failed: {}", e.what());
@@ -156,7 +157,7 @@ namespace rangelua::runtime {
         }
 
         VM_LOG_DEBUG("try_binary_metamethod: Calling metamethod {}", get_name(mm));
-        auto call_result = call_metamethod(metamethod, {left, right});
+        auto call_result = call_metamethod(nullptr, metamethod, {left, right});
         if (is_error(call_result)) {
             VM_LOG_ERROR("try_binary_metamethod: Metamethod call failed");
             return get_error(call_result);
@@ -215,7 +216,7 @@ namespace rangelua::runtime {
             return ErrorCode::TYPE_ERROR;  // No metamethod found
         }
 
-        auto call_result = call_metamethod(metamethod, {operand});
+        auto call_result = call_metamethod(nullptr, metamethod, {operand});
         if (is_error(call_result)) {
             return get_error(call_result);
         }
@@ -257,7 +258,7 @@ namespace rangelua::runtime {
             return ErrorCode::TYPE_ERROR;  // No metamethod found
         }
 
-        auto call_result = call_metamethod(metamethod, {left, right});
+        auto call_result = call_metamethod(nullptr, metamethod, {left, right});
         if (is_error(call_result)) {
             return get_error(call_result);
         }

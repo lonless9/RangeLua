@@ -23,7 +23,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the absolute value
      */
-    std::vector<runtime::Value> abs(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> abs(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.acos function implementation
@@ -33,7 +34,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the arc cosine
      */
-    std::vector<runtime::Value> acos(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> acos(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.asin function implementation
@@ -43,7 +45,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the arc sine
      */
-    std::vector<runtime::Value> asin(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> asin(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.atan function implementation
@@ -53,7 +56,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number(s)
      * @return Vector containing the arc tangent
      */
-    std::vector<runtime::Value> atan(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> atan(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.ceil function implementation
@@ -63,7 +67,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the ceiling
      */
-    std::vector<runtime::Value> ceil(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> ceil(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.cos function implementation
@@ -73,7 +78,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the cosine
      */
-    std::vector<runtime::Value> cos(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> cos(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.deg function implementation
@@ -83,7 +89,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the angle in radians
      * @return Vector containing the angle in degrees
      */
-    std::vector<runtime::Value> deg(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> deg(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.exp function implementation
@@ -93,7 +100,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the exponent
      * @return Vector containing e^x
      */
-    std::vector<runtime::Value> exp(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> exp(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.floor function implementation
@@ -103,7 +111,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the floor
      */
-    std::vector<runtime::Value> floor(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> floor(runtime::IVMContext* vm,
+                                    const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.fmod function implementation
@@ -113,7 +122,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing x and y
      * @return Vector containing x % y
      */
-    std::vector<runtime::Value> fmod(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> fmod(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.log function implementation
@@ -123,7 +133,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing x and optional base
      * @return Vector containing the logarithm
      */
-    std::vector<runtime::Value> log(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> log(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.max function implementation
@@ -133,7 +144,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the numbers
      * @return Vector containing the maximum
      */
-    std::vector<runtime::Value> max(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> max(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.min function implementation
@@ -143,7 +155,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the numbers
      * @return Vector containing the minimum
      */
-    std::vector<runtime::Value> min(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> min(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.modf function implementation
@@ -153,7 +166,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing integral and fractional parts
      */
-    std::vector<runtime::Value> modf(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> modf(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.rad function implementation
@@ -163,7 +177,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the angle in degrees
      * @return Vector containing the angle in radians
      */
-    std::vector<runtime::Value> rad(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> rad(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.random function implementation
@@ -173,7 +188,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing optional range parameters
      * @return Vector containing the random number
      */
-    std::vector<runtime::Value> random(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> random(runtime::IVMContext* vm,
+                                     const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.randomseed function implementation
@@ -183,7 +199,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the seed
      * @return Vector (empty)
      */
-    std::vector<runtime::Value> randomseed(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> randomseed(runtime::IVMContext* vm,
+                                         const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.sin function implementation
@@ -193,7 +210,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the sine
      */
-    std::vector<runtime::Value> sin(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> sin(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.sqrt function implementation
@@ -203,7 +221,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the square root
      */
-    std::vector<runtime::Value> sqrt(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> sqrt(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.tan function implementation
@@ -213,7 +232,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the number
      * @return Vector containing the tangent
      */
-    std::vector<runtime::Value> tan(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> tan(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.tointeger function implementation
@@ -223,7 +243,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the value
      * @return Vector containing the integer or nil
      */
-    std::vector<runtime::Value> tointeger(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> tointeger(runtime::IVMContext* vm,
+                                        const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.type function implementation
@@ -233,7 +254,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing the value
      * @return Vector containing the type string or nil
      */
-    std::vector<runtime::Value> type(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> type(runtime::IVMContext* vm,
+                                   const std::vector<runtime::Value>& args);
 
     /**
      * @brief Lua math.ult function implementation
@@ -243,7 +265,8 @@ namespace rangelua::stdlib::math {
      * @param args Vector containing m and n
      * @return Vector containing boolean result
      */
-    std::vector<runtime::Value> ult(const std::vector<runtime::Value>& args);
+    std::vector<runtime::Value> ult(runtime::IVMContext* vm,
+                                  const std::vector<runtime::Value>& args);
 
     /**
      * @brief Register math library functions in the given global table
@@ -253,6 +276,7 @@ namespace rangelua::stdlib::math {
      *
      * @param globals The global environment table to register the math library in
      */
-    void register_functions(const runtime::GCPtr<runtime::Table>& globals);
+    void register_functions(runtime::IVMContext* vm,
+                              const runtime::GCPtr<runtime::Table>& globals);
 
 }  // namespace rangelua::stdlib::math

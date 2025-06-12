@@ -24,7 +24,6 @@
 namespace rangelua::runtime {
 
     // Forward declarations for strategy pattern
-    class IVMContext;
     class InstructionStrategyRegistry;
 
     /**
@@ -32,7 +31,8 @@ namespace rangelua::runtime {
      */
     struct CallFrame {
         const backend::BytecodeFunction* function = nullptr;
-        GCPtr<Function> closure{};  // Closure for upvalue access (default constructed to empty)
+        std::unique_ptr<const backend::BytecodeFunction> owned_function; // Owns the function if created on the fly
+        GCPtr<Function> closure{};                                       // Closure for upvalue access (default constructed to empty)
         Size instruction_pointer = 0;
         Size stack_base = 0;
         Size local_count = 0;
@@ -47,28 +47,12 @@ namespace rangelua::runtime {
         bool has_varargs = false;  // Whether function accepts varargs
 
         CallFrame() = default;
-        CallFrame(const backend::BytecodeFunction* func, Size stack_base, Size locals)
-            : function(func), stack_base(stack_base), local_count(locals) {}
-        CallFrame(const backend::BytecodeFunction* func,
-                  const GCPtr<Function>& closure,
-                  Size stack_base,
-                  Size locals)
-            : function(func), closure(closure), stack_base(stack_base), local_count(locals) {}
+        // Ensure move semantics are correctly handled for unique_ptr
+        CallFrame(CallFrame&&) noexcept = default;
+        CallFrame& operator=(CallFrame&&) noexcept = default;
+        CallFrame(const CallFrame&) = delete;
+        CallFrame& operator=(const CallFrame&) = delete;
 
-        // Enhanced constructor with vararg support
-        CallFrame(const backend::BytecodeFunction* func,
-                  Size stack_base,
-                  Size locals,
-                  Size param_count,
-                  Size arg_count,
-                  bool varargs = false)
-            : function(func),
-              stack_base(stack_base),
-              local_count(locals),
-              parameter_count(param_count),
-              argument_count(arg_count),
-              vararg_base(stack_base + param_count),
-              has_varargs(varargs) {}
 
         /**
          * @brief Get number of extra arguments (varargs)
@@ -122,10 +106,12 @@ namespace rangelua::runtime {
         VirtualMachine(VirtualMachine&&) noexcept = default;
         VirtualMachine& operator=(VirtualMachine&&) noexcept = default;
 
-        Result<std::vector<Value>> pcall(const Value& function, const std::vector<Value>& args);
+        Result<std::vector<Value>> pcall(const Value& function,
+                                           const std::vector<Value>& args) override;
 
-        Result<std::vector<Value>>
-        xpcall(const Value& function, const Value& msgh, const std::vector<Value>& args);
+        Result<std::vector<Value>> xpcall(const Value& function,
+                                            const Value& msgh,
+                                            const std::vector<Value>& args) override;
 
         /**
          * @brief Execute bytecode function
@@ -276,11 +262,9 @@ namespace rangelua::runtime {
         Status setup_call_frame(const backend::BytecodeFunction& function, Size arg_count) override;
 
         /**
-         * @brief Setup call frame with explicit stack base
+         * @brief Setup call frame for a bytecode function, taking ownership
          */
-        Status setup_call_frame(const backend::BytecodeFunction& function,
-                                Size arg_count,
-                                Size stack_base);
+        Status setup_call_frame(std::unique_ptr<const backend::BytecodeFunction> function, GCPtr<Function> closure, Size arg_count, Size stack_base);
 
         /**
          * @brief Return from function
@@ -317,7 +301,9 @@ namespace rangelua::runtime {
          */
         void set_upvalue(UpvalueIndex index, const Value& value) override;
 
-        // Additional VM-specific methods
+        VirtualMachine& get_vm() override { return *this; }
+
+         // Additional VM-specific methods
         /**
          * @brief Get stack value at index
          */
@@ -346,7 +332,7 @@ namespace rangelua::runtime {
         /**
          * @brief Trigger runtime error for testing
          */
-        void trigger_runtime_error(const String& message);
+        void trigger_runtime_error(const String& message) override;
 
         /**
          * @brief Get current call frame (for vararg access)
@@ -398,6 +384,9 @@ namespace rangelua::runtime {
         // Error handling and stack unwinding
         void unwind_stack_to_protected_call();
         [[nodiscard]] String generate_stack_trace_string() const;
+        Status call_c_function_protected(const Value& func,
+                                     const std::vector<Value>& args,
+                                     std::vector<Value>& results);
 
         // Legacy call operations (for backward compatibility)
         Status call_function(const Value& function, Size arg_count, Size result_count);

@@ -46,7 +46,7 @@ namespace rangelua::runtime {
         auto* strategy = get_strategy(opcode);
         if (!strategy) {
             VM_LOG_ERROR("No strategy found for opcode {}", static_cast<int>(opcode));
-            context.set_runtime_error("Unimplemented instruction");
+            context.trigger_runtime_error("Unimplemented instruction");
             return ErrorCode::RUNTIME_ERROR;
         }
 
@@ -55,17 +55,20 @@ namespace rangelua::runtime {
 
         try {
             return strategy->execute(context, instruction);
+        } catch (const RuntimeError&) {
+            // Re-throw to be caught by pcall/xpcall.
+            throw;
         } catch (const Exception& e) {
             VM_LOG_ERROR("Strategy execution failed: {}", e.what());
             context.set_error(e.code());
             return e.code();
         } catch (const std::exception& e) {
             VM_LOG_ERROR("Strategy execution failed with std::exception: {}", e.what());
-            context.set_runtime_error(String("Strategy execution error: ") + e.what());
+            context.trigger_runtime_error(String("Strategy execution error: ") + e.what());
             return ErrorCode::RUNTIME_ERROR;
         } catch (...) {
             VM_LOG_ERROR("Strategy execution failed with unknown exception");
-            context.set_runtime_error("Unknown error in strategy execution");
+            context.trigger_runtime_error("Unknown error in strategy execution");
             return ErrorCode::UNKNOWN_ERROR;
         }
     }

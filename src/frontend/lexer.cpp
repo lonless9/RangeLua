@@ -157,6 +157,8 @@ namespace rangelua::frontend {
 
         [[nodiscard]] const std::vector<String>& errors() const noexcept { return errors_; }
 
+        [[nodiscard]] const String& filename() const noexcept { return filename_; }
+
     private:
         // Character access and movement
         [[nodiscard]] char current() const noexcept { return at_end() ? '\0' : source_[position_]; }
@@ -704,6 +706,10 @@ namespace rangelua::frontend {
 
     const std::vector<String>& Lexer::errors() const noexcept {
         return impl_->errors();
+    }
+
+    const String& Lexer::filename() const noexcept {
+        return impl_->filename();
     }
 
     // Utility functions

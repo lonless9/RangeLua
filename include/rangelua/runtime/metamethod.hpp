@@ -156,7 +156,8 @@ namespace rangelua::runtime {
          * @param args Arguments to pass
          * @return Result of metamethod call
          */
-        static Result<std::vector<Value>> call_metamethod(const Value& metamethod,
+        static Result<std::vector<Value>> call_metamethod(IVMContext* context,
+                                                          const Value& metamethod,
                                                           const std::vector<Value>& args);
 
         /**

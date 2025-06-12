@@ -4,9 +4,10 @@
  * @version 0.1.0
  */
 
-#include <rangelua/api/function.hpp>
-#include <rangelua/runtime/value.hpp>
-#include <rangelua/utils/logger.hpp>
+#include "rangelua/api/function.hpp"
+#include "rangelua/api/state.hpp"
+#include "rangelua/runtime/value.hpp"
+#include "rangelua/utils/logger.hpp"
 
 #include <stdexcept>
 
@@ -20,7 +21,7 @@ namespace rangelua::api {
     }  // namespace
 
     // Construction and conversion
-    Function::Function(runtime::Value value) {
+    Function::Function(State& state, runtime::Value value) : state_(state) {
         if (value.is_function()) {
             auto result = value.to_function();
             if (std::holds_alternative<runtime::Value::FunctionPtr>(result)) {
@@ -36,7 +37,8 @@ namespace rangelua::api {
         }
     }
 
-    Function::Function(runtime::GCPtr<runtime::Function> function) : function_(std::move(function)) {
+    Function::Function(State& state, runtime::GCPtr<runtime::Function> function)
+        : state_(state), function_(std::move(function)) {
         if (!function_) {
             logger()->error("Attempted to create Function from null GCPtr");
             throw std::invalid_argument("Function pointer is null");
@@ -44,9 +46,30 @@ namespace rangelua::api {
         logger()->debug("Created function wrapper from GCPtr");
     }
 
-    Function::Function(std::function<std::vector<runtime::Value>(const std::vector<runtime::Value>&)> fn)
-        : function_(runtime::makeGCObject<runtime::Function>(std::move(fn))) {
+    Function::Function(
+        State& state,
+        std::function<std::vector<runtime::Value>(runtime::IVMContext*, const std::vector<runtime::Value>&)> fn)
+        : state_(state), function_(runtime::makeGCObject<runtime::Function>(std::move(fn))) {
         logger()->debug("Created function wrapper from C++ callable");
+    }
+
+    // Copy and move semantics
+    Function::Function(const Function& other) : state_(other.state_), function_(other.function_) {}
+
+    Function& Function::operator=(const Function& other) {
+        if (this != &other) {
+            function_ = other.function_;
+        }
+        return *this;
+    }
+
+    Function::Function(Function&& other) noexcept : state_(other.state_), function_(std::move(other.function_)) {}
+
+    Function& Function::operator=(Function&& other) noexcept {
+        if (this != &other) {
+            function_ = std::move(other.function_);
+        }
+        return *this;
     }
 
     // Validation
@@ -103,7 +126,7 @@ namespace rangelua::api {
     Result<std::vector<runtime::Value>> Function::call() const {
         ensure_valid();
         try {
-            auto result = function_->call(std::vector<runtime::Value>{});
+            auto result = function_->call(&state_, std::vector<runtime::Value>{});
             return result;
         } catch (const std::exception& e) {
             logger()->error("Function call failed: {}", e.what());
@@ -114,7 +137,7 @@ namespace rangelua::api {
     Result<std::vector<runtime::Value>> Function::call(const std::vector<runtime::Value>& args) const {
         ensure_valid();
         try {
-            auto result = function_->call(args);
+            auto result = function_->call(&state_, args);
             return result;
         } catch (const std::exception& e) {
             logger()->error("Function call failed: {}", e.what());
@@ -303,35 +326,12 @@ namespace rangelua::api {
     // Factory functions
     namespace function_factory {
 
-        Function from_c_function(std::function<std::vector<runtime::Value>(const std::vector<runtime::Value>&)> fn) {
-            return Function(std::move(fn));
+        Function from_c_function(
+            State& state,
+            std::function<std::vector<runtime::Value>(runtime::IVMContext*, const std::vector<runtime::Value>&)> fn) {
+            return Function(state, std::move(fn));
         }
 
-        template<typename Callable>
-        Function from_callable(Callable&& callable) {
-            auto wrapper = [callable = std::forward<Callable>(callable)]([[maybe_unused]] const std::vector<runtime::Value>& args) -> std::vector<runtime::Value> {
-                // This is a simplified wrapper - in a real implementation,
-                // we would need more sophisticated argument conversion
-                if constexpr (std::is_invocable_v<Callable>) {
-                    if constexpr (std::same_as<std::invoke_result_t<Callable>, void>) {
-                        callable();
-                        return {};
-                    } else {
-                        auto result = callable();
-                        return {runtime::Value(result)};
-                    }
-                } else {
-                    // For now, just call with no arguments
-                    return {};
-                }
-            };
-            return Function(wrapper);
-        }
-
-        template<typename Lambda>
-        Function from_lambda(Lambda&& lambda) {
-            return from_callable(std::forward<Lambda>(lambda));
-        }
 
     }  // namespace function_factory
 

@@ -22,6 +22,7 @@ namespace rangelua::runtime {
     class Coroutine;
     class Userdata;
     class Value;
+    class IVMContext;
 
 }  // namespace rangelua::runtime
 
@@ -203,7 +204,7 @@ namespace rangelua::runtime {
         // Bitwise operators
         Value operator&(const Value& other) const;
         Value operator|(const Value& other) const;
-        Value bitwise_xor(const Value& other) const;  // Bitwise XOR (separate from exponentiation)
+        [[nodiscard]] Value bitwise_xor(const Value& other) const;  // Bitwise XOR (separate from exponentiation)
         Value operator~() const;
         Value operator<<(const Value& other) const;
         Value operator>>(const Value& other) const;
@@ -220,7 +221,7 @@ namespace rangelua::runtime {
 
         // Function call
         template <typename... Args>
-        [[nodiscard]] Result<std::vector<Value>> call(Args&&... args) const;
+        [[nodiscard]] Result<std::vector<Value>> call(IVMContext* vm, Args&&... args) const;
 
         // Utility methods
         [[nodiscard]] String type_name() const;
@@ -272,7 +273,9 @@ namespace rangelua::runtime {
 
         Value table();
         Value table(std::initializer_list<std::pair<Value, Value>> init);
-        Value function(const std::function<std::vector<Value>(const std::vector<Value>&)>& fn);
+        Value function(
+            const std::function<std::vector<Value>(IVMContext*, const std::vector<Value>&)>& fn,
+            IVMContext* vm_context);
         Value closure(const std::vector<Instruction>& bytecode, Size paramCount = 0);
         Value closure(const std::vector<Instruction>& bytecode,
                       const std::vector<Value>& upvalues,

@@ -17,7 +17,7 @@
 
 namespace rangelua::stdlib::string {
 
-    std::vector<runtime::Value> byte(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> byte(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_string()) {
             return {};
         }
@@ -65,13 +65,13 @@ namespace rangelua::stdlib::string {
         std::vector<runtime::Value> result;
         for (size_t i = start; i <= end && i <= str.length(); ++i) {
             unsigned char c = static_cast<unsigned char>(str[i - 1]);
-            result.push_back(runtime::Value(static_cast<double>(c)));
+            result.emplace_back(static_cast<double>(c));
         }
 
         return result;
     }
 
-    std::vector<runtime::Value> char_(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> char_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         std::string result;
 
         for (const auto& arg : args) {
@@ -89,7 +89,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(result)};
     }
 
-    std::vector<runtime::Value> find(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> find(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 2 || !args[0].is_string() || !args[1].is_string()) {
             return {};
         }
@@ -133,7 +133,7 @@ namespace rangelua::stdlib::string {
         return {};
     }
 
-    std::vector<runtime::Value> format(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> format(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_string()) {
             return {runtime::Value("")};
         }
@@ -150,7 +150,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(format_str)};
     }
 
-    std::vector<runtime::Value> gsub(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> gsub(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 3 || !args[0].is_string() || !args[1].is_string()) {
             return {};
         }
@@ -186,7 +186,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(str), runtime::Value(static_cast<double>(count))};
     }
 
-    std::vector<runtime::Value> len(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> len(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_string()) {
             return {runtime::Value(0.0)};
         }
@@ -200,7 +200,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(static_cast<double>(str.length()))};
     }
 
-    std::vector<runtime::Value> lower(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> lower(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_string()) {
             return {runtime::Value("")};
         }
@@ -215,9 +215,9 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(str)};
     }
 
-    std::vector<runtime::Value> match(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> match(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         // For now, just return the same as find but only the matched string
-        auto find_result = find(args);
+        auto find_result = find(vm, args);
         if (find_result.size() >= 2) {
             // Extract the matched substring
             auto str_result = args[0].to_string();
@@ -235,7 +235,7 @@ namespace rangelua::stdlib::string {
         return {};
     }
 
-    std::vector<runtime::Value> rep(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> rep(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 2 || !args[0].is_string() || !args[1].is_number()) {
             return {runtime::Value("")};
         }
@@ -274,7 +274,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(result)};
     }
 
-    std::vector<runtime::Value> reverse(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> reverse(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_string()) {
             return {runtime::Value("")};
         }
@@ -289,7 +289,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(str)};
     }
 
-    std::vector<runtime::Value> sub(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> sub(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_string()) {
             return {runtime::Value("")};
         }
@@ -341,7 +341,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(result)};
     }
 
-    std::vector<runtime::Value> upper(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> upper(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_string()) {
             return {runtime::Value("")};
         }
@@ -356,7 +356,7 @@ namespace rangelua::stdlib::string {
         return {runtime::Value(str)};
     }
 
-    void register_functions(const runtime::GCPtr<runtime::Table>& globals) {
+    void register_functions(runtime::IVMContext* vm, const runtime::GCPtr<runtime::Table>& globals) {
         // Create string table
         auto string_table = runtime::value_factory::table();
         auto string_table_ptr = string_table.to_table();
@@ -365,18 +365,18 @@ namespace rangelua::stdlib::string {
             auto table = std::get<runtime::GCPtr<runtime::Table>>(string_table_ptr);
 
             // Register string library functions
-            table->set(runtime::Value("byte"), runtime::value_factory::function(byte));
-            table->set(runtime::Value("char"), runtime::value_factory::function(char_));
-            table->set(runtime::Value("find"), runtime::value_factory::function(find));
-            table->set(runtime::Value("format"), runtime::value_factory::function(format));
-            table->set(runtime::Value("gsub"), runtime::value_factory::function(gsub));
-            table->set(runtime::Value("len"), runtime::value_factory::function(len));
-            table->set(runtime::Value("lower"), runtime::value_factory::function(lower));
-            table->set(runtime::Value("match"), runtime::value_factory::function(match));
-            table->set(runtime::Value("rep"), runtime::value_factory::function(rep));
-            table->set(runtime::Value("reverse"), runtime::value_factory::function(reverse));
-            table->set(runtime::Value("sub"), runtime::value_factory::function(sub));
-            table->set(runtime::Value("upper"), runtime::value_factory::function(upper));
+            table->set(runtime::Value("byte"), runtime::value_factory::function(byte, vm));
+            table->set(runtime::Value("char"), runtime::value_factory::function(char_, vm));
+            table->set(runtime::Value("find"), runtime::value_factory::function(find, vm));
+            table->set(runtime::Value("format"), runtime::value_factory::function(format, vm));
+            table->set(runtime::Value("gsub"), runtime::value_factory::function(gsub, vm));
+            table->set(runtime::Value("len"), runtime::value_factory::function(len, vm));
+            table->set(runtime::Value("lower"), runtime::value_factory::function(lower, vm));
+            table->set(runtime::Value("match"), runtime::value_factory::function(match, vm));
+            table->set(runtime::Value("rep"), runtime::value_factory::function(rep, vm));
+            table->set(runtime::Value("reverse"), runtime::value_factory::function(reverse, vm));
+            table->set(runtime::Value("sub"), runtime::value_factory::function(sub, vm));
+            table->set(runtime::Value("upper"), runtime::value_factory::function(upper, vm));
 
             // Register the string table in globals
             globals->set(runtime::Value("string"), string_table);

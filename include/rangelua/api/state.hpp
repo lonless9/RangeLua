@@ -26,7 +26,7 @@ namespace rangelua::api {
     /**
      * @brief Enhanced Lua state class with comprehensive API support
      */
-    class State {
+    class State : public runtime::IVMContext {
     public:
         explicit State();
         explicit State(const StateConfig& config);
@@ -51,27 +51,27 @@ namespace rangelua::api {
         /**
          * @brief Get stack size
          */
-        Size stack_size() const noexcept;
+        [[nodiscard]] Size stack_size() const noexcept override;
 
         /**
          * @brief Push value onto stack
          */
-        void push(runtime::Value value);
+        void push(runtime::Value value) override;
 
         /**
          * @brief Pop value from stack
          */
-        runtime::Value pop();
+        runtime::Value pop() override;
 
         /**
          * @brief Get top of stack
          */
-        const runtime::Value& top() const;
+        [[nodiscard]] const runtime::Value& top() const override;
 
         /**
          * @brief Get value at stack index
          */
-        const runtime::Value& get(Size index) const;
+        [[nodiscard]] const runtime::Value& get(Size index) const;
 
         /**
          * @brief Set value at stack index
@@ -81,17 +81,44 @@ namespace rangelua::api {
         /**
          * @brief Get global variable
          */
-        runtime::Value get_global(const String& name) const;
+        [[nodiscard]] runtime::Value get_global(const String& name) const override;
 
         /**
          * @brief Set global variable
          */
-        void set_global(const String& name, runtime::Value value);
+        void set_global(const String& name, runtime::Value value) override;
+
+        // IVMContext implementation
+        [[nodiscard]] runtime::Value& stack_at(Register reg) override;
+        [[nodiscard]] const runtime::Value& stack_at(Register reg) const override;
+        [[nodiscard]] Size instruction_pointer() const noexcept override;
+        void set_instruction_pointer(Size ip) noexcept override;
+        void adjust_instruction_pointer(std::int32_t offset) noexcept override;
+        [[nodiscard]] const backend::BytecodeFunction* current_function() const noexcept override;
+        [[nodiscard]] Size call_depth() const noexcept override;
+        [[nodiscard]] runtime::Value get_constant(std::uint16_t index) const override;
+        Status call_function(const runtime::Value& function,
+                             const std::vector<runtime::Value>& args,
+                             std::vector<runtime::Value>& results) override;
+        Result<std::vector<runtime::Value>> pcall(const runtime::Value& function,
+                                                  const std::vector<runtime::Value>& args) override;
+        Result<std::vector<runtime::Value>>
+        xpcall(const runtime::Value& function,
+               const runtime::Value& msgh,
+               const std::vector<runtime::Value>& args) override;
+        Status setup_call_frame(const backend::BytecodeFunction& function, Size arg_count) override;
+        Status return_from_function(Size result_count) override;
+        void set_error(ErrorCode code) override;
+        void set_runtime_error(const String& message) override;
+        void trigger_runtime_error(const String& message) override;
+        runtime::RuntimeMemoryManager& memory_manager() noexcept override;
+        [[nodiscard]] runtime::Value get_upvalue(UpvalueIndex index) const override;
+        void set_upvalue(UpvalueIndex index, const runtime::Value& value) override;
 
         /**
          * @brief Check if global variable exists
          */
-        bool has_global(const String& name) const;
+        [[nodiscard]] bool has_global(const String& name) const;
 
         /**
          * @brief Clear all global variables
@@ -101,7 +128,7 @@ namespace rangelua::api {
         /**
          * @brief Get VM state
          */
-        runtime::VMState vm_state() const noexcept;
+        [[nodiscard]] runtime::VMState vm_state() const noexcept;
 
         /**
          * @brief Reset state to initial condition
@@ -111,10 +138,12 @@ namespace rangelua::api {
         /**
          * @brief Get configuration
          */
-        const StateConfig& config() const noexcept { return config_; }
+        [[nodiscard]] const StateConfig& config() const noexcept { return config_; }
+
+        runtime::VirtualMachine& get_vm() override { return *vm_; }
 
     private:
-        runtime::VirtualMachine vm_;
+        std::unique_ptr<runtime::VirtualMachine> vm_;
         StateConfig config_;
 
         /**

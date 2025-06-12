@@ -91,7 +91,8 @@ namespace rangelua::runtime {
         // If key doesn't exist and table has __newindex metamethod, try it
         if (existing.is_nil() && MetamethodSystem::has_metamethod(table, Metamethod::NEWINDEX)) {
             auto mm_result = MetamethodSystem::call_metamethod(
-                MetamethodSystem::get_metamethod(table, Metamethod::NEWINDEX), {table, key, value});
+                &context, MetamethodSystem::get_metamethod(table, Metamethod::NEWINDEX),
+                {table, key, value});
             if (!is_error(mm_result)) {
                 return std::monostate{};
             }

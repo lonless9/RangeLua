@@ -14,7 +14,7 @@
 
 namespace rangelua::stdlib::table {
 
-    std::vector<runtime::Value> concat(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> concat(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_table()) {
             return {runtime::Value("")};
         }
@@ -25,7 +25,7 @@ namespace rangelua::stdlib::table {
         }
 
         auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
-        
+
         std::string separator;
         if (args.size() > 1 && args[1].is_string()) {
             auto sep_result = args[1].to_string();
@@ -56,7 +56,7 @@ namespace rangelua::stdlib::table {
             if (i > start && !separator.empty()) {
                 result << separator;
             }
-            
+
             auto value = table->getArray(i);
             if (value.is_string()) {
                 auto str_result = value.to_string();
@@ -74,7 +74,7 @@ namespace rangelua::stdlib::table {
         return {runtime::Value(result.str())};
     }
 
-    std::vector<runtime::Value> insert(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> insert(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_table()) {
             return {};
         }
@@ -96,7 +96,7 @@ namespace rangelua::stdlib::table {
                 auto pos_result = args[1].to_number();
                 if (std::holds_alternative<double>(pos_result)) {
                     size_t pos = static_cast<size_t>(std::get<double>(pos_result));
-                    
+
                     // Shift elements to the right
                     size_t array_size = table->arraySize();
                     for (size_t i = array_size; i >= pos; --i) {
@@ -104,7 +104,7 @@ namespace rangelua::stdlib::table {
                         table->setArray(i + 1, value);
                         if (i == pos) break;  // Prevent underflow
                     }
-                    
+
                     // Insert new element
                     table->setArray(pos, args[2]);
                 }
@@ -114,7 +114,7 @@ namespace rangelua::stdlib::table {
         return {};
     }
 
-    std::vector<runtime::Value> move(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> move(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 4) {
             return {};
         }
@@ -129,7 +129,7 @@ namespace rangelua::stdlib::table {
         }
 
         auto source = std::get<runtime::GCPtr<runtime::Table>>(source_result);
-        
+
         // Destination table (default to source if not provided)
         auto dest = source;
         if (args.size() > 4 && args[4].is_table()) {
@@ -143,10 +143,10 @@ namespace rangelua::stdlib::table {
         auto end_result = args[2].to_number();
         auto dest_start_result = args[3].to_number();
 
-        if (std::holds_alternative<double>(start_result) && 
-            std::holds_alternative<double>(end_result) && 
+        if (std::holds_alternative<double>(start_result) &&
+            std::holds_alternative<double>(end_result) &&
             std::holds_alternative<double>(dest_start_result)) {
-            
+
             size_t start = static_cast<size_t>(std::get<double>(start_result));
             size_t end = static_cast<size_t>(std::get<double>(end_result));
             size_t dest_start = static_cast<size_t>(std::get<double>(dest_start_result));
@@ -160,18 +160,18 @@ namespace rangelua::stdlib::table {
         return {runtime::Value(dest)};
     }
 
-    std::vector<runtime::Value> pack(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> pack(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         auto table = runtime::value_factory::table();
         auto table_result = table.to_table();
-        
+
         if (std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_result)) {
             auto table_ptr = std::get<runtime::GCPtr<runtime::Table>>(table_result);
-            
+
             // Pack arguments into array part
             for (size_t i = 0; i < args.size(); ++i) {
                 table_ptr->setArray(i + 1, args[i]);
             }
-            
+
             // Set "n" field to number of arguments
             table_ptr->set(runtime::Value("n"), runtime::Value(static_cast<double>(args.size())));
         }
@@ -179,7 +179,7 @@ namespace rangelua::stdlib::table {
         return {table};
     }
 
-    std::vector<runtime::Value> remove(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> remove(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_table()) {
             return {};
         }
@@ -190,9 +190,9 @@ namespace rangelua::stdlib::table {
         }
 
         auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
-        
+
         size_t pos = table->arraySize();  // Default to last element
-        
+
         if (args.size() > 1 && args[1].is_number()) {
             auto pos_result = args[1].to_number();
             if (std::holds_alternative<double>(pos_result)) {
@@ -206,20 +206,20 @@ namespace rangelua::stdlib::table {
 
         // Get the element to remove
         auto removed = table->getArray(pos);
-        
+
         // Shift elements to the left
         for (size_t i = pos; i < table->arraySize(); ++i) {
             auto value = table->getArray(i + 1);
             table->setArray(i, value);
         }
-        
+
         // Remove the last element
         table->setArray(table->arraySize(), runtime::Value());
 
         return {removed};
     }
 
-    std::vector<runtime::Value> sort(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> sort(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_table()) {
             return {};
         }
@@ -230,16 +230,16 @@ namespace rangelua::stdlib::table {
         }
 
         auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
-        
+
         // Simple bubble sort implementation for now
         // TODO: Implement proper sorting with comparison function support
         size_t n = table->arraySize();
-        
+
         for (size_t i = 1; i <= n; ++i) {
             for (size_t j = 1; j <= n - i; ++j) {
                 auto a = table->getArray(j);
                 auto b = table->getArray(j + 1);
-                
+
                 // Simple numeric comparison
                 bool should_swap = false;
                 if (a.is_number() && b.is_number()) {
@@ -249,7 +249,7 @@ namespace rangelua::stdlib::table {
                         should_swap = std::get<double>(a_result) > std::get<double>(b_result);
                     }
                 }
-                
+
                 if (should_swap) {
                     table->setArray(j, b);
                     table->setArray(j + 1, a);
@@ -260,7 +260,7 @@ namespace rangelua::stdlib::table {
         return {};
     }
 
-    std::vector<runtime::Value> unpack(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> unpack(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty() || !args[0].is_table()) {
             return {};
         }
@@ -271,7 +271,7 @@ namespace rangelua::stdlib::table {
         }
 
         auto table = std::get<runtime::GCPtr<runtime::Table>>(table_result);
-        
+
         size_t start = 1;
         size_t end = table->arraySize();
 
@@ -297,23 +297,23 @@ namespace rangelua::stdlib::table {
         return result;
     }
 
-    void register_functions(const runtime::GCPtr<runtime::Table>& globals) {
+    void register_functions(runtime::IVMContext* vm, const runtime::GCPtr<runtime::Table>& globals) {
         // Create table table
         auto table_table = runtime::value_factory::table();
         auto table_table_ptr = table_table.to_table();
-        
+
         if (std::holds_alternative<runtime::GCPtr<runtime::Table>>(table_table_ptr)) {
             auto table = std::get<runtime::GCPtr<runtime::Table>>(table_table_ptr);
-            
+
             // Register table library functions
-            table->set(runtime::Value("concat"), runtime::value_factory::function(concat));
-            table->set(runtime::Value("insert"), runtime::value_factory::function(insert));
-            table->set(runtime::Value("move"), runtime::value_factory::function(move));
-            table->set(runtime::Value("pack"), runtime::value_factory::function(pack));
-            table->set(runtime::Value("remove"), runtime::value_factory::function(remove));
-            table->set(runtime::Value("sort"), runtime::value_factory::function(sort));
-            table->set(runtime::Value("unpack"), runtime::value_factory::function(unpack));
-            
+            table->set(runtime::Value("concat"), runtime::value_factory::function(concat, vm));
+            table->set(runtime::Value("insert"), runtime::value_factory::function(insert, vm));
+            table->set(runtime::Value("move"), runtime::value_factory::function(move, vm));
+            table->set(runtime::Value("pack"), runtime::value_factory::function(pack, vm));
+            table->set(runtime::Value("remove"), runtime::value_factory::function(remove, vm));
+            table->set(runtime::Value("sort"), runtime::value_factory::function(sort, vm));
+            table->set(runtime::Value("unpack"), runtime::value_factory::function(unpack, vm));
+
             // Register the table table in globals
             globals->set(runtime::Value("table"), table_table);
         }

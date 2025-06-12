@@ -189,6 +189,7 @@ namespace rangelua::frontend {
          * @return Vector of error messages
          */
         [[nodiscard]] const std::vector<String>& errors() const noexcept;
+        [[nodiscard]] const String& filename() const noexcept;
 
     private:
         class Impl;

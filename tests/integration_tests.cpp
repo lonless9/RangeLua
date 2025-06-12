@@ -110,6 +110,10 @@ namespace {
         std::regex table_addr_pattern(R"((table|function|thread|userdata):\s*0x[0-9a-fA-F]+)");
         normalized = std::regex_replace(normalized, table_addr_pattern, "$1");
 
+        // Normalize line numbers in error messages to "?:"
+        std::regex line_number_pattern(R"((tests/scripts/[^:]+):\d+:)");
+        normalized = std::regex_replace(normalized, line_number_pattern, "$1:?:");
+
         return normalized;
     }
 

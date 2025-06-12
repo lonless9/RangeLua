@@ -13,7 +13,7 @@
 
 namespace rangelua::stdlib::basic {
 
-    std::vector<runtime::Value> print(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> print(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         // Convert all arguments to strings and print them
         for (size_t i = 0; i < args.size(); ++i) {
             if (i > 0) {
@@ -36,7 +36,7 @@ namespace rangelua::stdlib::basic {
         return {};          // print returns no values
     }
 
-    std::vector<runtime::Value> type(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> type(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {runtime::Value("nil")};
         }
@@ -46,7 +46,7 @@ namespace rangelua::stdlib::basic {
         return {runtime::Value(type_name)};
     }
 
-    std::vector<runtime::Value> ipairsaux(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> ipairsaux(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 2) {
             return {runtime::Value{}};  // Return nil to signal end of iteration
         }
@@ -89,7 +89,7 @@ namespace rangelua::stdlib::basic {
         return {runtime::Value(static_cast<Number>(next_index)), value};
     }
 
-    std::vector<runtime::Value> ipairs(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> ipairs(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {runtime::Value(), runtime::Value(), runtime::Value()};  // Return nil values
         }
@@ -97,12 +97,12 @@ namespace rangelua::stdlib::basic {
         const auto& table_value = args[0];
 
         // Return iterator function, table, and initial index (0)
-        return {runtime::value_factory::function(ipairsaux),
+        return {runtime::value_factory::function(ipairsaux, vm),
                 table_value,
                 runtime::Value(static_cast<Number>(0))};
     }
 
-    std::vector<runtime::Value> next(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> next(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 2) {
             return {};  // Return empty if insufficient arguments
         }
@@ -151,7 +151,7 @@ namespace rangelua::stdlib::basic {
         return {};
     }
 
-    std::vector<runtime::Value> pairs(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> pairs(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {runtime::Value(), runtime::Value(), runtime::Value()};  // Return nil values
         }
@@ -160,13 +160,13 @@ namespace rangelua::stdlib::basic {
 
         // Return iterator function, table, and nil
         return {
-            runtime::value_factory::function(next),
+            runtime::value_factory::function(next, vm),
             table_value,
             runtime::Value()  // nil
         };
     }
 
-    std::vector<runtime::Value> tostring(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> tostring(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {runtime::Value("nil")};
         }
@@ -183,7 +183,7 @@ namespace rangelua::stdlib::basic {
         return {runtime::Value(value.debug_string())};
     }
 
-    std::vector<runtime::Value> tonumber(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> tonumber(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {runtime::Value()};  // nil
         }
@@ -245,7 +245,7 @@ namespace rangelua::stdlib::basic {
         return {runtime::Value()};  // nil
     }
 
-    std::vector<runtime::Value> getmetatable(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> getmetatable(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {runtime::Value()};  // nil
         }
@@ -273,7 +273,7 @@ namespace rangelua::stdlib::basic {
         return {runtime::Value()};  // nil
     }
 
-    std::vector<runtime::Value> setmetatable(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> setmetatable(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 2) {
             return {runtime::Value()};  // nil
         }
@@ -306,7 +306,7 @@ namespace rangelua::stdlib::basic {
         return {table_value};  // Return the table
     }
 
-    std::vector<runtime::Value> rawget(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> rawget(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 2) {
             return {runtime::Value()};  // nil
         }
@@ -327,7 +327,7 @@ namespace rangelua::stdlib::basic {
         return {table->get(key_value)};
     }
 
-    std::vector<runtime::Value> rawset(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> rawset(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 3) {
             return {runtime::Value()};  // nil
         }
@@ -350,60 +350,42 @@ namespace rangelua::stdlib::basic {
         return {table_value};
     }
 
-    std::vector<runtime::Value> pcall_(const std::vector<runtime::Value>& args) {
-        if (args.empty() || !args[0].is_function()) {
-            // This should ideally throw a Lua error, but for simplicity we return false + message
-            return {runtime::Value(false), runtime::Value("bad argument #1 to 'pcall' (function expected)")};
+    std::vector<runtime::Value> pcall_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
+        if (args.empty()) {
+            vm->trigger_runtime_error("bad argument #1 to 'pcall' (value expected)");
+            return {};
         }
 
-        [[maybe_unused]] const auto& func = args[0];
-        [[maybe_unused]] std::vector<runtime::Value> func_args;
+        const auto& func = args[0];
+        std::vector<runtime::Value> func_args;
         if (args.size() > 1) {
             func_args.assign(args.begin() + 1, args.end());
         }
 
-        // This part is tricky. The stdlib function needs access to the VM instance
-        // that is executing it. A proper implementation would require the CFunction
-        // signature to be `int(lua_State* L)`.
-        // For now, we simulate this by assuming we can get the VM.
-        // auto vm_res = rangelua::runtime::getMemoryManager(); // Placeholder for getting VM
-        // if (is_error(vm_res)) {
-        //      return {runtime::Value(false), runtime::Value("internal VM error")};
-        // }
-
-        // The correct approach would be:
-        // lua_State* L = ...; // get from function context
-        // auto vm = static_cast<VirtualMachine*>(L);
-        // auto result = vm->pcall(func, func_args);
-        // if(is_success(result)) return get_value(result);
-        // else return { runtime::Value(false), runtime::Value("pcall internal failure") };
-
-        return {runtime::Value(false), runtime::Value("pcall not fully implemented in stdlib")};
+        auto result = vm->pcall(func, func_args);
+        // vm->pcall now always returns a success Result containing the vector.
+        return get_value(result);
     }
 
-    std::vector<runtime::Value> xpcall_(const std::vector<runtime::Value>& args) {
-        if (args.size() < 2 || !args[0].is_function() || !args[1].is_function()) {
-            return {runtime::Value(false), runtime::Value("bad argument to 'xpcall' (function expected)")};
+    std::vector<runtime::Value> xpcall_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
+        if (args.size() < 2) {
+            vm->trigger_runtime_error("bad argument to 'xpcall' (value expected)");
+            return {};
         }
 
-        [[maybe_unused]] const auto& func = args[0];
-        [[maybe_unused]] const auto& msgh = args[1];
-        [[maybe_unused]] std::vector<runtime::Value> func_args;
+        const auto& func = args[0];
+        const auto& msgh = args[1];
+
+        std::vector<runtime::Value> func_args;
         if (args.size() > 2) {
             func_args.assign(args.begin() + 2, args.end());
         }
 
-        // Again, this is a placeholder for getting the VM context.
-        // lua_State* L = ...;
-        // auto vm = static_cast<VirtualMachine*>(L);
-        // auto result = vm->xpcall(func, msgh, func_args);
-        // if(is_success(result)) return get_value(result);
-        // else return { runtime::Value(false), runtime::Value("xpcall internal failure") };
-
-        return {runtime::Value(false), runtime::Value("xpcall not fully implemented in stdlib")};
+        auto result = vm->xpcall(func, msgh, func_args);
+        return get_value(result);
     }
 
-    std::vector<runtime::Value> rawequal(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> rawequal(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.size() < 2) {
             return {runtime::Value(false)};
         }
@@ -413,7 +395,7 @@ namespace rangelua::stdlib::basic {
         return {runtime::Value(equal)};
     }
 
-    std::vector<runtime::Value> rawlen(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> rawlen(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {runtime::Value()};  // nil
         }
@@ -438,7 +420,7 @@ namespace rangelua::stdlib::basic {
         return {runtime::Value()};  // nil
     }
 
-    std::vector<runtime::Value> select(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> select(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         if (args.empty()) {
             return {};
         }
@@ -488,73 +470,69 @@ namespace rangelua::stdlib::basic {
         return {};
     }
 
-    std::vector<runtime::Value> error(const std::vector<runtime::Value>& args) {
+    std::vector<runtime::Value> error(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
         std::string message = "error";
-        if (!args.empty() && args[0].is_string()) {
-            auto str_result = args[0].to_string();
-            if (std::holds_alternative<std::string>(str_result)) {
+        if (!args.empty()) {
+            // Use tostring to convert the first argument to a string, similar to Lua's error function.
+            auto str_result = runtime::Value::tostring_with_metamethod(args[0]);
+             if (std::holds_alternative<std::string>(str_result)) {
                 message = std::get<std::string>(str_result);
+            } else {
+                message = args[0].debug_string();
             }
         }
 
-        // TODO: Implement proper error handling with level support
-        throw std::runtime_error(message);
+        // Use the VM's error handling mechanism. This will set the VM state
+        // to Error and allow pcall/xpcall to catch it.
+        vm->trigger_runtime_error(message);
+
+        // The error function should not return.
+        // The VM will stop execution after trigger_runtime_error.
+        return {};
     }
 
-    std::vector<runtime::Value> assert_(const std::vector<runtime::Value>& args) {
-        if (args.empty()) {
-            throw std::runtime_error("assertion failed!");
-        }
-
-        const auto& condition = args[0];
-
-        // Check if condition is false or nil
-        bool is_false = false;
-        if (condition.is_nil()) {
-            is_false = true;
-        } else if (condition.is_boolean()) {
-            auto bool_result = condition.to_boolean();
-            if (std::holds_alternative<bool>(bool_result)) {
-                is_false = !std::get<bool>(bool_result);
-            }
-        }
-
-        if (is_false) {
+    std::vector<runtime::Value> assert_(runtime::IVMContext* vm, const std::vector<runtime::Value>& args) {
+        if (args.empty() || args[0].is_falsy()) {
             std::string message = "assertion failed!";
-            if (args.size() > 1 && args[1].is_string()) {
-                auto str_result = args[1].to_string();
+            if (args.size() > 1) {
+                // Use tostring to convert the second argument to a string.
+                auto str_result = runtime::Value::tostring_with_metamethod(args[1]);
                 if (std::holds_alternative<std::string>(str_result)) {
                     message = std::get<std::string>(str_result);
+                } else {
+                    message = args[1].debug_string();
                 }
             }
-            throw std::runtime_error(message);
+            vm->trigger_runtime_error(message);
+            return {}; // Should not be reached if error handling works correctly
         }
 
-        return args;  // Return all arguments if assertion passes
+        // Return all arguments on success
+        return args;
     }
 
-    void register_functions(const runtime::GCPtr<runtime::Table>& globals) {
+    void register_functions(runtime::IVMContext* vm, const runtime::GCPtr<runtime::Table>& globals) {
         // Register the basic library functions
-        globals->set(runtime::Value("print"), runtime::value_factory::function(print));
-        globals->set(runtime::Value("type"), runtime::value_factory::function(type));
-        globals->set(runtime::Value("ipairs"), runtime::value_factory::function(ipairs));
-        globals->set(runtime::Value("pairs"), runtime::value_factory::function(pairs));
-        globals->set(runtime::Value("next"), runtime::value_factory::function(next));
-        globals->set(runtime::Value("tostring"), runtime::value_factory::function(tostring));
-        globals->set(runtime::Value("tonumber"), runtime::value_factory::function(tonumber));
+        globals->set(runtime::Value("print"), runtime::value_factory::function(print, vm));
+        globals->set(runtime::Value("type"), runtime::value_factory::function(type, vm));
+        globals->set(runtime::Value("ipairs"), runtime::value_factory::function(ipairs, vm));
+        globals->set(runtime::Value("pairs"), runtime::value_factory::function(pairs, vm));
+        globals->set(runtime::Value("next"), runtime::value_factory::function(next, vm));
+        globals->set(runtime::Value("tostring"), runtime::value_factory::function(tostring, vm));
+        globals->set(runtime::Value("tonumber"), runtime::value_factory::function(tonumber, vm));
         globals->set(runtime::Value("getmetatable"),
-                     runtime::value_factory::function(getmetatable));
+                     runtime::value_factory::function(getmetatable, vm));
         globals->set(runtime::Value("setmetatable"),
-                     runtime::value_factory::function(setmetatable));
-        globals->set(runtime::Value("rawget"), runtime::value_factory::function(rawget));
-        globals->set(runtime::Value("rawset"), runtime::value_factory::function(rawset));
-        globals->set(runtime::Value("rawequal"), runtime::value_factory::function(rawequal));
-        globals->set(runtime::Value("rawlen"), runtime::value_factory::function(rawlen));
-        globals->set(runtime::Value("select"), runtime::value_factory::function(select));
-        globals->set(runtime::Value("error"), runtime::value_factory::function(error));
-        globals->set(runtime::Value("assert"), runtime::value_factory::function(assert_));
-        globals->set(runtime::Value("pcall"), runtime::value_factory::function(pcall_));
-        globals->set(runtime::Value("xpcall"), runtime::value_factory::function(xpcall_));
+                     runtime::value_factory::function(setmetatable, vm));
+        globals->set(runtime::Value("rawget"), runtime::value_factory::function(rawget, vm));
+        globals->set(runtime::Value("rawset"), runtime::value_factory::function(rawset, vm));
+        globals->set(runtime::Value("rawequal"), runtime::value_factory::function(rawequal, vm));
+        globals->set(runtime::Value("rawlen"), runtime::value_factory::function(rawlen, vm));
+        globals->set(runtime::Value("select"), runtime::value_factory::function(select, vm));
+        globals->set(runtime::Value("error"), runtime::value_factory::function(error, vm));
+        globals->set(runtime::Value("assert"), runtime::value_factory::function(assert_, vm));
+        globals->set(runtime::Value("pcall"), runtime::value_factory::function(pcall_, vm));
+        globals->set(runtime::Value("xpcall"), runtime::value_factory::function(xpcall_, vm));
     }
 
 }  // namespace rangelua::stdlib::basic
