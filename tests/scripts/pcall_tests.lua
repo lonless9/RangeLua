@@ -4,11 +4,11 @@
 -- pcall success:
 -- true	10	20
 -- pcall failure:
--- false	tests/scripts/pcall_tests.lua:?: test error
+-- false	tests/scripts/pcall_tests.lua:20: test error
 -- xpcall success:
 -- true	hello	world
 -- xpcall failure with message handler:
--- false	Error: tests/scripts/pcall_tests.lua:?: test error
+-- false	Error: tests/scripts/pcall_tests.lua:28: test error
 -- xpcall failure with failing message handler:
 -- false	error in error handling
 

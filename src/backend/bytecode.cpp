@@ -83,7 +83,7 @@ namespace rangelua::backend {
     // InstructionEncoder methods are defined inline in the header
 
     // BytecodeEmitter implementation
-    BytecodeEmitter::BytecodeEmitter(String function_name) {
+    BytecodeEmitter::BytecodeEmitter(String function_name) : current_line_(0) {
         function_.name = std::move(function_name);
     }
 
@@ -106,6 +106,7 @@ namespace rangelua::backend {
     Size BytecodeEmitter::emit_instruction(Instruction instr) {
         Size index = function_.instructions.size();
         function_.instructions.push_back(instr);
+        function_.line_info.push_back(current_line_);
         return index;
     }
 
@@ -205,8 +206,8 @@ namespace rangelua::backend {
         function_.is_vararg = is_vararg;
     }
 
-    void BytecodeEmitter::add_line_info(Size line) {
-        function_.line_info.push_back(line);
+    void BytecodeEmitter::set_current_line(Size line) {
+        current_line_ = line;
     }
 
     void BytecodeEmitter::set_source_name(String name) {

@@ -869,7 +869,6 @@ namespace rangelua::backend {
 
     Status CodeGenerator::generate_statement(const frontend::Statement& stmt) {
         CODEGEN_LOG_DEBUG("Generating statement code");
-        emitter_.add_line_info(stmt.location().line_);
 
         // Save current expression state
         Optional<ExpressionDesc> saved_expr = current_expression_;
@@ -885,6 +884,7 @@ namespace rangelua::backend {
 
     // AST Visitor implementations (using new expression system)
     void CodeGenerator::visit(const frontend::LiteralExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for literal expression");
 
         ExpressionDesc expr;
@@ -920,6 +920,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::IdentifierExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for identifier: {}", node.name());
 
         // Resolve the variable
@@ -959,6 +960,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::BinaryOpExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for binary operation");
 
         // Handle logical operators specially for short-circuit evaluation
@@ -1357,6 +1359,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::UnaryOpExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for unary operation");
 
         // Generate code for operand
@@ -1403,6 +1406,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::FunctionCallExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for function call");
 
         // Generate code for the function expression
@@ -1545,6 +1549,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::BlockStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for block statement");
 
         // Enter new scope for the block
@@ -1560,6 +1565,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::AssignmentStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for assignment statement");
 
         const auto& targets = node.targets();
@@ -1836,6 +1842,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::IfStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for if statement");
 
         std::vector<Size> end_jumps;  // Collect all jumps to the end
@@ -1920,6 +1927,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::Program& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for program");
 
         // Enter global scope
@@ -1987,6 +1995,7 @@ namespace rangelua::backend {
 
     // New AST visitor implementations
     void CodeGenerator::visit(const frontend::MethodCallExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for method call: {}", node.method_name());
 
         // Generate code for the object
@@ -2051,6 +2060,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::TableAccessExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for table access");
 
         // Generate code for table expression
@@ -2107,6 +2117,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::TableConstructorExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for table constructor");
 
         // Allocate register for the new table
@@ -2290,6 +2301,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::FunctionExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for function expression");
 
         // Allocate register for the function closure
@@ -2409,6 +2421,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit([[maybe_unused]] const frontend::VarargExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for vararg expression");
 
         // Allocate register for vararg result
@@ -2436,6 +2449,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::ParenthesizedExpression& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for parenthesized expression");
 
         // Parenthesized expressions in Lua limit multiple return values to one
@@ -2448,6 +2462,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::LocalDeclarationStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for local declaration");
 
         const auto& names = node.names();
@@ -2678,6 +2693,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::FunctionDeclarationStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for function declaration");
 
         // Allocate register for the function closure
@@ -2820,6 +2836,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::WhileStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for while statement");
 
         // Mark loop start
@@ -2861,6 +2878,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::ForNumericStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for numeric for statement");
 
         // Enter new scope for the loop variable
@@ -2970,6 +2988,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::ForGenericStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for generic for statement");
 
         // Enter new scope for the loop variables
@@ -3087,6 +3106,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::RepeatStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for repeat statement");
 
         // Mark loop start
@@ -3121,6 +3141,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::DoStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for do statement");
 
         // Do statements create a new scope
@@ -3134,6 +3155,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::ReturnStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for return statement");
 
         const auto& values = node.values();
@@ -3206,6 +3228,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit([[maybe_unused]] const frontend::BreakStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for break statement");
 
         if (!in_loop()) {
@@ -3221,6 +3244,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::GotoStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for goto statement: {}", node.label());
 
         // Use the label management system to emit goto
@@ -3228,6 +3252,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::LabelStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for label statement: {}", node.name());
 
         // Use the label management system to define the label
@@ -3235,6 +3260,7 @@ namespace rangelua::backend {
     }
 
     void CodeGenerator::visit(const frontend::ExpressionStatement& node) {
+        emitter_.set_current_line(node.location().line_);
         CODEGEN_LOG_DEBUG("Generating code for expression statement");
 
         // Generate the expression

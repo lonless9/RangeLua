@@ -333,9 +333,10 @@ namespace rangelua::runtime {
           vm_context_(vm_context) {
     }
 
-    Function::Function(std::vector<Instruction> bytecode, Size paramCount)
+    Function::Function(std::vector<Instruction> bytecode, std::vector<Size> line_info, Size paramCount)
         : GCObject(LuaType::FUNCTION), type_(Type::LUA_FUNCTION),
-          parameterCount_(paramCount), bytecode_(std::move(bytecode)) {
+          parameterCount_(paramCount), bytecode_(std::move(bytecode)),
+          line_info_(std::move(line_info)) {
     }
 
     Function::~Function() {
@@ -385,6 +386,13 @@ namespace rangelua::runtime {
             throw std::runtime_error("Function is not a Lua function or closure");
         }
         return bytecode_;
+    }
+
+    const std::vector<Size>& Function::lineInfo() const {
+        if (!isLuaFunction() && !isClosure()) {
+            throw std::runtime_error("Function is not a Lua function or closure");
+        }
+        return line_info_;
     }
 
     void Function::addConstant(const Value& constant) {
@@ -481,7 +489,15 @@ namespace rangelua::runtime {
     Size Function::objectSize() const noexcept {
         return sizeof(Function) + bytecode_.capacity() * sizeof(Instruction) +
                constants_.capacity() * sizeof(Value) +
-               upvalues_.capacity() * sizeof(GCPtr<Upvalue>);
+               upvalues_.capacity() * sizeof(GCPtr<Upvalue>) +
+               line_info_.capacity() * sizeof(Size);
+    }
+
+    Size Function::getLineDefined() const {
+        if (!line_info_.empty()) {
+            return line_info_[0];
+        }
+        return 0;
     }
 
     // Userdata implementation

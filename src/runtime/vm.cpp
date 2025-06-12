@@ -680,6 +680,7 @@ Result<std::vector<Value>> VirtualMachine::call_lua_function(GCPtr<Function> fun
         bytecode_func->stack_size = 32;  // Increased stack size for safety
         bytecode_func->instructions = function->bytecode();
         bytecode_func->is_vararg = function->isVararg();
+        bytecode_func->line_info = function->lineInfo();
 
         // Copy constants from the function to the bytecode function
         const auto& constants = function->constants();
@@ -925,7 +926,7 @@ Status VirtualMachine::setup_call_frame(
             // This is the main chunk - create a closure with _ENV upvalue
             // Create a minimal function with empty bytecode for the closure
             std::vector<Instruction> empty_bytecode;
-            auto main_closure = makeGCObject<Function>(empty_bytecode, 0);
+            auto main_closure = makeGCObject<Function>(empty_bytecode, std::vector<Size>{}, 0);
             main_closure->setSource(frame.function->source_name);  // ADD THIS LINE
             main_closure->makeClosure();  // Convert to closure
 

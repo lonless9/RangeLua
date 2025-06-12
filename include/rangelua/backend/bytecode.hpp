@@ -354,9 +354,9 @@ namespace rangelua::backend {
         void set_vararg(bool is_vararg);
 
         /**
-         * @brief Add line information for debugging
+         * @brief Set current line for debugging
          */
-        void add_line_info(Size line);
+        void set_current_line(Size line);
 
         /**
          * @brief Set source name for debugging
@@ -385,6 +385,7 @@ namespace rangelua::backend {
 
     private:
         BytecodeFunction function_;
+        Size current_line_ = 0;
         std::unordered_map<String, Size> string_constant_map_;  // For string constants only
         std::unordered_map<String, Size> local_map_;
         std::unordered_map<String, Size> upvalue_map_;

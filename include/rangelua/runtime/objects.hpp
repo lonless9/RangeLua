@@ -189,7 +189,9 @@ namespace rangelua::runtime {
         // Constructors
         explicit Function(CFunction func, IVMContext* vm_context = nullptr);
 
-        explicit Function(std::vector<Instruction> bytecode, Size paramCount = 0);
+        explicit Function(std::vector<Instruction> bytecode,
+                          std::vector<Size> line_info,
+                          Size paramCount = 0);
 
         ~Function() override;
 
@@ -207,6 +209,7 @@ namespace rangelua::runtime {
         // Lua function access
         [[nodiscard]] bool isLuaFunction() const noexcept;
         [[nodiscard]] const std::vector<Instruction>& bytecode() const;
+        [[nodiscard]] const std::vector<Size>& lineInfo() const;
 
         // Constant management
         void addConstant(const Value& constant);
@@ -235,7 +238,8 @@ namespace rangelua::runtime {
         [[nodiscard]] Size objectSize() const noexcept override;
 
         void setSource(String source) { source_ = std::move(source); }
-        const String& getSource() const { return source_; }
+        [[nodiscard]] const String& getSource() const { return source_; }
+        [[nodiscard]] Size getLineDefined() const;
 
     private:
         Type type_;
@@ -249,6 +253,7 @@ namespace rangelua::runtime {
         // Lua function data
         std::vector<Instruction> bytecode_;
         std::vector<Value> constants_;
+        std::vector<Size> line_info_;
 
         // Upvalues (for closures)
         std::vector<GCPtr<Upvalue>> upvalues_;

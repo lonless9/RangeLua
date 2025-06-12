@@ -184,9 +184,14 @@ namespace rangelua::runtime {
             case ValueType::Table:
                 oss << "table: " << std::get<TablePtr>(data_).get();
                 break;
-            case ValueType::Function:
-                oss << "function: " << std::get<FunctionPtr>(data_).get();
+            case ValueType::Function: {
+                auto fn = std::get<FunctionPtr>(data_);
+                oss << "function: " << fn.get();
+                if (fn->isLuaFunction() || fn->isClosure()) {
+                    oss << " (" << fn->getSource() << ":" << fn->getLineDefined() << ")";
+                }
                 break;
+            }
             case ValueType::Userdata:
                 oss << "userdata: " << std::get<UserdataPtr>(data_).get();
                 break;
@@ -677,7 +682,7 @@ namespace rangelua::runtime {
         }
 
         Value closure(const std::vector<Instruction>& bytecode, Size paramCount) {
-            auto function_ptr = makeGCObject<Function>(bytecode, paramCount);
+            auto function_ptr = makeGCObject<Function>(bytecode, std::vector<Size>{}, paramCount);
             function_ptr->makeClosure();
             return Value(std::move(function_ptr));
         }
@@ -685,7 +690,7 @@ namespace rangelua::runtime {
         Value closure(const std::vector<Instruction>& bytecode,
                       const std::vector<Value>& upvalues,
                       Size paramCount) {
-            auto function_ptr = makeGCObject<Function>(bytecode, paramCount);
+            auto function_ptr = makeGCObject<Function>(bytecode, std::vector<Size>{}, paramCount);
             function_ptr->makeClosure();
 
             // Add upvalues as closed upvalues
