@@ -350,6 +350,59 @@ namespace rangelua::stdlib::basic {
         return {table_value};
     }
 
+    std::vector<runtime::Value> pcall_(const std::vector<runtime::Value>& args) {
+        if (args.empty() || !args[0].is_function()) {
+            // This should ideally throw a Lua error, but for simplicity we return false + message
+            return {runtime::Value(false), runtime::Value("bad argument #1 to 'pcall' (function expected)")};
+        }
+
+        [[maybe_unused]] const auto& func = args[0];
+        [[maybe_unused]] std::vector<runtime::Value> func_args;
+        if (args.size() > 1) {
+            func_args.assign(args.begin() + 1, args.end());
+        }
+
+        // This part is tricky. The stdlib function needs access to the VM instance
+        // that is executing it. A proper implementation would require the CFunction
+        // signature to be `int(lua_State* L)`.
+        // For now, we simulate this by assuming we can get the VM.
+        // auto vm_res = rangelua::runtime::getMemoryManager(); // Placeholder for getting VM
+        // if (is_error(vm_res)) {
+        //      return {runtime::Value(false), runtime::Value("internal VM error")};
+        // }
+
+        // The correct approach would be:
+        // lua_State* L = ...; // get from function context
+        // auto vm = static_cast<VirtualMachine*>(L);
+        // auto result = vm->pcall(func, func_args);
+        // if(is_success(result)) return get_value(result);
+        // else return { runtime::Value(false), runtime::Value("pcall internal failure") };
+
+        return {runtime::Value(false), runtime::Value("pcall not fully implemented in stdlib")};
+    }
+
+    std::vector<runtime::Value> xpcall_(const std::vector<runtime::Value>& args) {
+        if (args.size() < 2 || !args[0].is_function() || !args[1].is_function()) {
+            return {runtime::Value(false), runtime::Value("bad argument to 'xpcall' (function expected)")};
+        }
+
+        [[maybe_unused]] const auto& func = args[0];
+        [[maybe_unused]] const auto& msgh = args[1];
+        [[maybe_unused]] std::vector<runtime::Value> func_args;
+        if (args.size() > 2) {
+            func_args.assign(args.begin() + 2, args.end());
+        }
+
+        // Again, this is a placeholder for getting the VM context.
+        // lua_State* L = ...;
+        // auto vm = static_cast<VirtualMachine*>(L);
+        // auto result = vm->xpcall(func, msgh, func_args);
+        // if(is_success(result)) return get_value(result);
+        // else return { runtime::Value(false), runtime::Value("xpcall internal failure") };
+
+        return {runtime::Value(false), runtime::Value("xpcall not fully implemented in stdlib")};
+    }
+
     std::vector<runtime::Value> rawequal(const std::vector<runtime::Value>& args) {
         if (args.size() < 2) {
             return {runtime::Value(false)};
@@ -500,6 +553,8 @@ namespace rangelua::stdlib::basic {
         globals->set(runtime::Value("select"), runtime::value_factory::function(select));
         globals->set(runtime::Value("error"), runtime::value_factory::function(error));
         globals->set(runtime::Value("assert"), runtime::value_factory::function(assert_));
+        globals->set(runtime::Value("pcall"), runtime::value_factory::function(pcall_));
+        globals->set(runtime::Value("xpcall"), runtime::value_factory::function(xpcall_));
     }
 
 }  // namespace rangelua::stdlib::basic

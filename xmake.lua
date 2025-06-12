@@ -7,7 +7,7 @@ set_toolchains("clang")
 -- Add build modes
 add_rules("mode.debug", "mode.release")
 
-add_rules("plugin.compile_commands.autoupdate", {outputdir = ".vscode", lsp = "clangd"})
+add_rules("plugin.compile_commands.autoupdate", {outputdir = "build", lsp = "clangd"})
 
 -- C++20 specific flags
 add_cxxflags("-std=c++20", "-fcoroutines")

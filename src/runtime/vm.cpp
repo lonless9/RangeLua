@@ -191,6 +191,118 @@ namespace rangelua::runtime {
         }
     }
 
+    Result<std::vector<Value>> VirtualMachine::pcall(const Value& function,
+                                                     const std::vector<Value>& args) {
+        // Save state before the call
+        Size original_stack_top = stack_top_;
+        Size original_call_stack_size = call_stack_.size();
+
+        // Push function and arguments
+        push(function);
+        for (const auto& arg : args) {
+            push(arg);
+        }
+
+        // Set up the call frame as protected
+        auto function_ptr_res = function.to_function();
+        if (is_error(function_ptr_res)) return get_error(function_ptr_res);
+        auto function_ptr = get_value(function_ptr_res);
+
+        backend::BytecodeFunction bcf; // Simplified, assumes function is already compiled
+        bcf.instructions = function_ptr->bytecode();
+        bcf.parameter_count = function_ptr->parameterCount();
+        bcf.stack_size = 50; // A reasonable default
+
+        auto setup_status = setup_call_frame(bcf, args.size());
+        if(is_error(setup_status)) return get_error(setup_status);
+
+        call_stack_.back().is_protected_call = true;
+
+        // Execute in a loop until the protected call is finished or an error is handled
+        state_ = VMState::Running;
+        while (state_ == VMState::Running && call_stack_.size() > original_call_stack_size) {
+            step();
+        }
+
+        std::vector<Value> results;
+        if (state_ == VMState::Error) {
+            results.emplace_back(false);
+            results.push_back(error_obj_);
+            unwind_stack_to_protected_call();
+            call_stack_.pop_back(); // Pop the protected call frame
+            stack_top_ = original_stack_top; // Restore stack top
+            state_ = VMState::Ready; // Reset state
+        } else { // Finished normally
+            results.emplace_back(true);
+            // Collect results from stack
+            for (Size i = original_stack_top; i < stack_top_; ++i) {
+                results.push_back(stack_[i]);
+            }
+        }
+        return results;
+    }
+
+    Result<std::vector<Value>> VirtualMachine::xpcall(const Value& function,
+                                                      const Value& msgh,
+                                                      const std::vector<Value>& args) {
+        // Save state before the call
+        Size original_stack_top = stack_top_;
+        Size original_call_stack_size = call_stack_.size();
+
+        // Push message handler first, so we know its stack index
+        push(msgh);
+        int msgh_idx = static_cast<int>(stack_top_) - 1;
+
+        // Push function and arguments
+        push(function);
+        for (const auto& arg : args) {
+            push(arg);
+        }
+
+        // Set up the call frame as protected with a message handler
+        auto function_ptr_res = function.to_function();
+        if (is_error(function_ptr_res)) return get_error(function_ptr_res);
+        auto function_ptr = get_value(function_ptr_res);
+
+        backend::BytecodeFunction bcf; // Simplified
+        bcf.instructions = function_ptr->bytecode();
+        bcf.parameter_count = function_ptr->parameterCount();
+        bcf.stack_size = 50;
+
+        auto setup_status = setup_call_frame(bcf, args.size());
+        if(is_error(setup_status)) return get_error(setup_status);
+
+        call_stack_.back().is_protected_call = true;
+        call_stack_.back().msgh = msgh_idx;
+
+        // Execute
+        state_ = VMState::Running;
+        while (state_ == VMState::Running && call_stack_.size() > original_call_stack_size) {
+            step();
+        }
+
+        std::vector<Value> results;
+        if (state_ == VMState::Error) {
+            // Call message handler
+            std::vector<Value> msgh_results;
+            call_function(msgh, {error_obj_}, msgh_results);
+
+            results.emplace_back(false);
+            results.push_back(msgh_results.empty() ? error_obj_ : msgh_results[0]);
+
+            unwind_stack_to_protected_call();
+            call_stack_.pop_back();
+            stack_top_ = original_stack_top;
+            state_ = VMState::Ready;
+        } else {
+            results.emplace_back(true);
+            for (Size i = original_stack_top + 1; i < stack_top_; ++i) { // +1 to skip msgh
+                results.push_back(stack_[i]);
+            }
+        }
+        return results;
+    }
+
     Result<std::vector<Value>> VirtualMachine::resume() {
         if (state_ != VMState::Suspended) {
             return ErrorCode::RUNTIME_ERROR;
@@ -280,10 +392,10 @@ namespace rangelua::runtime {
         return stack_[index];
     }
 
-    void VirtualMachine::set_stack(Size index, Value value) {
+    void VirtualMachine::set_stack(Size index, const Value& value) {
         ensure_stack_size(index + 1);
         if (index < stack_.size()) {
-            stack_[index] = std::move(value);
+            stack_[index] = value;
             stack_top_ = std::max(stack_top_, index + 1);
         }
     }
@@ -754,14 +866,14 @@ namespace rangelua::runtime {
                                  stack_index,
                                  stack_[stack_index].debug_string());
                 } else {
-                    results.push_back(Value{});  // nil for missing values
+                    results.emplace_back();  // nil for missing values
                     VM_LOG_DEBUG("Collected return value[{}]: nil (missing from stack)", i);
                 }
             }
 
             // If no results were collected, return a single nil value (Lua convention)
             if (results.empty()) {
-                results.push_back(Value{});
+                results.emplace_back();
                 VM_LOG_DEBUG("No return values collected, returning single nil");
             }
 
@@ -774,6 +886,45 @@ namespace rangelua::runtime {
     }
 
     // Private helper methods
+    void VirtualMachine::unwind_stack_to_protected_call() {
+        while (!call_stack_.empty()) {
+            if (call_stack_.back().is_protected_call) {
+                // Found the protected call boundary
+                return;
+            }
+            call_stack_.pop_back();
+        }
+    }
+
+    String VirtualMachine::generate_stack_trace_string() const {
+        std::stringstream ss;
+        ss << "stack traceback:\n";
+        for (auto it = call_stack_.rbegin(); it != call_stack_.rend(); ++it) {
+            const auto& frame = *it;
+            ss << "\t";
+            if (frame.function) {
+                // if (!frame.function->source_name.empty()) {
+                //     ss << frame.function->source_name;
+                // } else {
+                ss << "[C-function]";
+                // }
+
+                // Assuming line_info maps instruction pointer to line number
+                // if (frame.instruction_pointer > 0 && frame.instruction_pointer <= frame.function->line_info.size()) {
+                //      ss << ":" << frame.function->line_info[frame.instruction_pointer - 1];
+                // }
+
+                if (!frame.function->name.empty()) {
+                     ss << " in function '" << frame.function->name << "'\n";
+                } else {
+                     ss << " in function <unknown>\n";
+                }
+            } else {
+                ss << "[C-function]: in function <unknown>\n";
+            }
+        }
+        return ss.str();
+    }
     Status VirtualMachine::execute_instruction(OpCode opcode, Instruction instruction) {
         VM_LOG_DEBUG("Executing instruction {} using strategy pattern", static_cast<int>(opcode));
 
@@ -956,10 +1107,14 @@ namespace rangelua::runtime {
     void VirtualMachine::set_runtime_error(const String& message) {
         VM_LOG_ERROR("Runtime error: {}", message);
 
-        // Create detailed runtime error with source location
-        RuntimeError error(message);
-        log_error(error);
+        // Generate stack trace before unwinding
+        String stack_trace = generate_stack_trace_string();
+        String full_message = message + "\n" + stack_trace;
 
+        // Create detailed runtime error with source location
+        RuntimeError error(full_message);
+        log_error(error);
+        error_obj_ = Value(full_message);
         set_error(ErrorCode::RUNTIME_ERROR);
 
         // Additional debug information

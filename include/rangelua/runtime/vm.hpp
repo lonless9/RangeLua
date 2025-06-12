@@ -32,11 +32,13 @@ namespace rangelua::runtime {
      */
     struct CallFrame {
         const backend::BytecodeFunction* function = nullptr;
-        GCPtr<Function> closure;  // Closure for upvalue access (default constructed to empty)
+        GCPtr<Function> closure{};  // Closure for upvalue access (default constructed to empty)
         Size instruction_pointer = 0;
         Size stack_base = 0;
         Size local_count = 0;
         bool is_tail_call = false;
+        bool is_protected_call = false;  // Is this a protected call boundary?
+        int msgh = 0;                    // Stack index of the message handler for xpcall
 
         // Vararg support
         Size parameter_count = 0;  // Number of declared parameters
@@ -120,6 +122,11 @@ namespace rangelua::runtime {
         VirtualMachine(VirtualMachine&&) noexcept = default;
         VirtualMachine& operator=(VirtualMachine&&) noexcept = default;
 
+        Result<std::vector<Value>> pcall(const Value& function, const std::vector<Value>& args);
+
+        Result<std::vector<Value>>
+        xpcall(const Value& function, const Value& msgh, const std::vector<Value>& args);
+
         /**
          * @brief Execute bytecode function
          * @param function Function to execute
@@ -162,52 +169,52 @@ namespace rangelua::runtime {
         /**
          * @brief Get current VM state
          */
-        VMState state() const noexcept { return state_; }
+        [[nodiscard]] VMState state() const noexcept { return state_; }
 
         /**
          * @brief Check if VM is running
          */
-        bool is_running() const noexcept { return state_ == VMState::Running; }
+        [[nodiscard]] bool is_running() const noexcept { return state_ == VMState::Running; }
 
         /**
          * @brief Check if VM is suspended
          */
-        bool is_suspended() const noexcept { return state_ == VMState::Suspended; }
+        [[nodiscard]] bool is_suspended() const noexcept { return state_ == VMState::Suspended; }
 
         /**
          * @brief Check if VM has finished
          */
-        bool is_finished() const noexcept { return state_ == VMState::Finished; }
+        [[nodiscard]] bool is_finished() const noexcept { return state_ == VMState::Finished; }
 
         /**
          * @brief Check if VM has error
          */
-        bool has_error() const noexcept { return state_ == VMState::Error; }
+        [[nodiscard]] bool has_error() const noexcept { return state_ == VMState::Error; }
 
         /**
          * @brief Get last error code
          */
-        ErrorCode last_error() const noexcept { return last_error_; }
+        [[nodiscard]] ErrorCode last_error() const noexcept { return last_error_; }
 
         /**
          * @brief Get stack size
          */
-        Size stack_size() const noexcept override { return stack_top_; }
+        [[nodiscard]] Size stack_size() const noexcept override { return stack_top_; }
 
         /**
          * @brief Get call stack depth
          */
-        Size call_depth() const noexcept override { return call_stack_.size(); }
+        [[nodiscard]] Size call_depth() const noexcept override { return call_stack_.size(); }
 
         /**
          * @brief Get current instruction pointer
          */
-        Size instruction_pointer() const noexcept override;
+        [[nodiscard]] Size instruction_pointer() const noexcept override;
 
         /**
          * @brief Get current function
          */
-        const backend::BytecodeFunction* current_function() const noexcept override;
+        [[nodiscard]] const backend::BytecodeFunction* current_function() const noexcept override;
 
         // IVMContext interface implementation
         /**
@@ -223,13 +230,13 @@ namespace rangelua::runtime {
         /**
          * @brief Peek at top of stack
          */
-        const Value& top() const override;
+        [[nodiscard]] const Value& top() const override;
 
         /**
          * @brief Get stack value at register
          */
         Value& stack_at(Register reg) override;
-        const Value& stack_at(Register reg) const override;
+        [[nodiscard]] const Value& stack_at(Register reg) const override;
 
         /**
          * @brief Set instruction pointer
@@ -244,7 +251,7 @@ namespace rangelua::runtime {
         /**
          * @brief Get global value
          */
-        Value get_global(const String& name) const override;
+        [[nodiscard]] Value get_global(const String& name) const override;
 
         /**
          * @brief Set global value
@@ -254,7 +261,7 @@ namespace rangelua::runtime {
         /**
          * @brief Get constant value
          */
-        Value get_constant(std::uint16_t index) const override;
+        [[nodiscard]] Value get_constant(std::uint16_t index) const override;
 
         /**
          * @brief Call function with arguments
@@ -303,7 +310,7 @@ namespace rangelua::runtime {
         /**
          * @brief Get upvalue
          */
-        Value get_upvalue(UpvalueIndex index) const override;
+        [[nodiscard]] Value get_upvalue(UpvalueIndex index) const override;
 
         /**
          * @brief Set upvalue
@@ -314,27 +321,27 @@ namespace rangelua::runtime {
         /**
          * @brief Get stack value at index
          */
-        const Value& get_stack(Size index) const;
+        [[nodiscard]] const Value& get_stack(Size index) const;
 
         /**
          * @brief Set stack value at index
          */
-        void set_stack(Size index, Value value);
+        void set_stack(Size index, const Value& value);
 
         /**
          * @brief Get VM configuration
          */
-        const VMConfig& config() const noexcept { return config_; }
+        [[nodiscard]] const VMConfig& config() const noexcept { return config_; }
 
         /**
          * @brief Get global table from environment
          */
-        GCPtr<Table> get_global_table() const;
+        [[nodiscard]] GCPtr<Table> get_global_table() const;
 
         /**
          * @brief Get environment registry
          */
-        Registry* get_registry() const noexcept;
+        [[nodiscard]] Registry* get_registry() const noexcept;
 
         /**
          * @brief Trigger runtime error for testing
@@ -357,7 +364,7 @@ namespace rangelua::runtime {
 
         // Memory management
         std::unique_ptr<RuntimeMemoryManager> owned_memory_manager_;
-        RuntimeMemoryManager* memory_manager_;
+        RuntimeMemoryManager* memory_manager_ = nullptr;
 
         // Strategy pattern for instruction execution
         std::unique_ptr<InstructionStrategyRegistry> strategy_registry_;
@@ -376,6 +383,7 @@ namespace rangelua::runtime {
         // Current execution context
         Size stack_top_ = 0;
         ErrorCode last_error_ = ErrorCode::SUCCESS;
+        Value error_obj_{};  // Stores the current error object
 
         // Instruction execution methods
         Status execute_instruction(OpCode opcode, Instruction instruction);
@@ -386,6 +394,10 @@ namespace rangelua::runtime {
         // Function call implementations
         Result<std::vector<Value>> call_lua_function(GCPtr<Function> function,
                                                      const std::vector<Value>& args);
+
+        // Error handling and stack unwinding
+        void unwind_stack_to_protected_call();
+        [[nodiscard]] String generate_stack_trace_string() const;
 
         // Legacy call operations (for backward compatibility)
         Status call_function(const Value& function, Size arg_count, Size result_count);
@@ -400,7 +412,7 @@ namespace rangelua::runtime {
         Value constant_to_value(const backend::ConstantValue& constant);
 
         // Special function handling
-        bool is_tostring_function(const GCPtr<Function>& function) const;
+        [[nodiscard]] bool is_tostring_function(const GCPtr<Function>& function) const;
         std::vector<Value> call_tostring_with_metamethod(const std::vector<Value>& args);
     };
 
@@ -428,10 +440,10 @@ namespace rangelua::runtime {
 
     private:
         VirtualMachine& vm_;
-        VMState saved_state_;
+        VMState saved_state_{};
         std::vector<Value> saved_stack_;
         std::vector<CallFrame> saved_call_stack_;
-        Size saved_stack_top_;
+        Size saved_stack_top_ = 0;
         bool is_saved_ = false;
     };
 
